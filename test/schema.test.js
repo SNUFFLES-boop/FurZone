@@ -220,6 +220,36 @@ test('VRChat: a code is issued for a valid id, never for someone else\'s account
     assert.equal((await as('fox', `delete from connections where provider = 'vrchat' returning user_id`)).length, 1);
 });
 
+test('VRChat server functions: only the service role, with expiry and attempt limits', async () => {
+    for (const fn of [`vrchat_claim_attempt('${users.fox}')`, 'vrchat_session_get()', `vrchat_session_set('x')`,
+                      `vrchat_complete('${users.fox}', '${VRC(9)}', 'x')`]) {
+        await assert.rejects(as('fox', `select ${fn}`), /permission denied/);
+    }
+    const [{ start_vrchat_link: code }] = await as('wolf', 'select start_vrchat_link($1)', [VRC(3)]);
+    const service = async (sql, params) => {
+        await db.exec('reset role; set role service_role');
+        try {
+            return (await db.query(sql, params)).rows;
+        } finally {
+            await db.exec('reset role');
+        }
+    };
+    const [claim] = await service('select * from vrchat_claim_attempt($1)', [users.wolf]);
+    assert.deepEqual(claim, { vrchat_user_id: VRC(3), code });
+    for (let i = 1; i < 10; i++) await service('select * from vrchat_claim_attempt($1)', [users.wolf]);
+    await assert.rejects(service('select * from vrchat_claim_attempt($1)', [users.wolf]), /too many checks/);
+    await service('select vrchat_complete($1, $2, $3)', [users.wolf, VRC(3), 'Wolfy']);
+    const [c] = await as('cat', `select handle from connections where user_id = $1 and provider = 'vrchat'`, [users.wolf]);
+    assert.equal(c.handle, 'Wolfy');
+    await assert.rejects(service('select * from vrchat_claim_attempt($1)', [users.wolf]), /new code/);
+    await assert.rejects(service('select vrchat_complete($1, $2, $3)', [users.cat, VRC(3), 'Thief']), /already connected/);
+    await as('cat', 'select start_vrchat_link($1)', [VRC(4)]);
+    await admin(`update private.vrchat_link_codes set created_at = now() - interval '2 hours' where user_id = $1`, [users.cat]);
+    await assert.rejects(service('select * from vrchat_claim_attempt($1)', [users.cat]), /expired/);
+    await service(`select vrchat_session_set('auth=abc')`);
+    assert.equal((await service('select vrchat_session_get() as c'))[0].c, 'auth=abc');
+});
+
 test('feed and tags: following, #tag filter, trending, and connection badges', async () => {
     await admin(`insert into connections (user_id, provider, external_id, handle) values ($1, 'vrchat', $2, 'Foxy')`, [users.fox, VRC(2)]);
     await as('wolf', `insert into posts (caption) values ('Howl at the moon #art')`);

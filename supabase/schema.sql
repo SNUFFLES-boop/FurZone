@@ -568,6 +568,68 @@ end $$;
 revoke all on function public.start_vrchat_link(text) from public, anon;
 grant execute on function public.start_vrchat_link(text) to authenticated;
 
+-- Server side of the VRChat check, callable only with the service role key (the vrchat-verify function).
+-- Codes last an hour and allow 10 checks, so nobody can hammer VRChat through us.
+create or replace function public.vrchat_claim_attempt(p_user uuid)
+returns table (vrchat_user_id text, code text)
+language plpgsql security definer set search_path = public, private as $$
+declare
+  r private.vrchat_link_codes;
+begin
+  select * into r from private.vrchat_link_codes c where c.user_id = p_user for update;
+  if not found then
+    raise exception 'Start again: get a new code first.' using errcode = 'P0002';
+  end if;
+  if r.created_at < now() - interval '1 hour' then
+    delete from private.vrchat_link_codes c where c.user_id = p_user;
+    raise exception 'That code expired. Get a new one.' using errcode = 'P0002';
+  end if;
+  if r.attempts >= 10 then
+    raise exception 'Slow down: too many checks. Get a new code in a bit.' using errcode = 'P0429';
+  end if;
+  update private.vrchat_link_codes c set attempts = c.attempts + 1 where c.user_id = p_user;
+  return query select r.vrchat_user_id, r.code;
+end $$;
+
+create or replace function public.vrchat_complete(p_user uuid, p_vrchat_user_id text, p_handle text) returns void
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if exists (select 1 from connections where provider = 'vrchat' and external_id = p_vrchat_user_id and user_id <> p_user) then
+    raise exception 'That VRChat account is already connected to someone else.' using errcode = '23505';
+  end if;
+  insert into connections (user_id, provider, external_id, handle, verified_at)
+  values (p_user, 'vrchat', p_vrchat_user_id, left(coalesce(p_handle, ''), 100), now())
+  on conflict (user_id, provider) do update set external_id = excluded.external_id, handle = excluded.handle,
+                                                verified_at = excluded.verified_at;
+  delete from private.vrchat_link_codes where user_id = p_user;
+end $$;
+
+create or replace function public.vrchat_session_get() returns text
+language sql stable security definer set search_path = private as $$
+  select cookie from private.vrchat_session where id = 1
+$$;
+
+create or replace function public.vrchat_session_set(p_cookie text) returns void
+language sql security definer set search_path = private as $$
+  insert into private.vrchat_session (id, cookie, updated_at) values (1, p_cookie, now())
+  on conflict (id) do update set cookie = excluded.cookie, updated_at = now()
+$$;
+
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin;
+  end if;
+end $$;
+revoke all on function public.vrchat_claim_attempt(uuid) from public, anon, authenticated;
+revoke all on function public.vrchat_complete(uuid, text, text) from public, anon, authenticated;
+revoke all on function public.vrchat_session_get() from public, anon, authenticated;
+revoke all on function public.vrchat_session_set(text) from public, anon, authenticated;
+grant execute on function public.vrchat_claim_attempt(uuid) to service_role;
+grant execute on function public.vrchat_complete(uuid, text, text) to service_role;
+grant execute on function public.vrchat_session_get() to service_role;
+grant execute on function public.vrchat_session_set(text) to service_role;
+
 -- ---------------------------------------------------------------- reading
 
 -- The feed: newest first; everyone, the people you follow, or one #tag. Never shows hidden posts or
