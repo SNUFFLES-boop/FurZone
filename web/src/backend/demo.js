@@ -61,6 +61,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const chat = []; // Lounge messages
     let chatSeq = 0;
     const dmListeners = new Set();
+    const phones = new Map(); // phone -> user id
+    let pendingPhone = null;
     const loungeListeners = new Set();
     const news = [];
     const blobs = new Map();
@@ -385,6 +387,42 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             },
             async changePassword(newPassword) {
                 for (const acc of accounts.values()) if (acc.userId === me()) acc.password = newPassword;
+            },
+            // Phone numbers: in the demo no text is sent; the code is always 123456.
+            async sendPhoneCode(phone, username) {
+                if (!phones.has(phone) && !username) throw new Error('Signups not allowed for otp');
+                if (username && !phones.has(phone) && [...profiles.values()].some((p) => p.username === username)) throw new Error('That username is taken.');
+                pendingPhone = { phone, username };
+                return delay();
+            },
+            async verifyPhoneCode(phone, code) {
+                if (code !== '123456' || !pendingPhone || pendingPhone.phone !== phone) throw new Error('Token has expired or is invalid');
+                let uid = phones.get(phone);
+                if (!uid) {
+                    uid = newAccount('phone:' + phone, null, pendingPhone.username).id;
+                    phones.set(phone, uid);
+                }
+                pendingPhone = null;
+                session = { userId: uid, email: null };
+                emit('SIGNED_IN');
+            },
+            async addPhone(phone) {
+                me();
+                if (phones.has(phone) && phones.get(phone) !== me()) throw new Error('A user with this phone number has already been registered');
+                pendingPhone = { phone };
+                return delay();
+            },
+            async confirmPhone(phone, code) {
+                const a = me();
+                if (code !== '123456' || !pendingPhone || pendingPhone.phone !== phone) throw new Error('Token has expired or is invalid');
+                for (const [p, u] of phones) if (u === a) phones.delete(p);
+                phones.set(phone, a);
+                pendingPhone = null;
+            },
+            async myPhone() {
+                const a = me();
+                for (const [p, u] of phones) if (u === a) return p;
+                return '';
             },
             // In the demo, "Discord" connects straight away (no real Discord involved).
             async discordLoginUrl() {

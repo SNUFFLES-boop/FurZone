@@ -1,7 +1,7 @@
 import { SERVER_CONFIGURED } from '../config.js';
-import { h, icon, toast, errorText, withBusy, field, sheet, fill } from '../ui.js';
+import { h, icon, toast, errorText, withBusy, field, sheet, fill, segmented } from '../ui.js';
 import { logo } from '../icons.js';
-import { validUsername, passwordStrength } from '../format.js';
+import { validUsername, passwordStrength, normalizePhone } from '../format.js';
 import { app } from '../state.js';
 
 const STRENGTH = ['Too short', 'Weak', 'Okay', 'Good', 'Strong'];
@@ -164,6 +164,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         icon('discord'),
         'Continue with Discord'
     );
+    const phoneBtn = h('button', { type: 'button', class: 'btn ghost block lg phone-btn', onclick: () => phoneFlow(mode) }, icon('phone'), 'Continue with phone number');
 
     const startDemo = async () => {
         sessionStorage.setItem('furzone.demo', '1');
@@ -184,6 +185,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         form,
         h('div', { class: 'or' }, h('span', { text: 'or' })),
         discord,
+        phoneBtn,
         h('p', { class: 'fine', text: 'FurZone is for ages 13+ and safe-for-work posts only. Be kind — reports from the community hide rule-breaking posts.' })
     );
 
@@ -207,9 +209,105 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         tabs.hidden = true;
         form.hidden = true;
         discord.hidden = true;
+        phoneBtn.hidden = true;
         card.querySelector('.or').hidden = true;
     }
     setMode('signup');
+}
+
+/**
+ * Log in or sign up with a phone number: we text a 6-digit code, you type it in. Shared with Settings for
+ * adding a phone to an account (`add: true`).
+ */
+export function phoneFlow(startMode = 'login', { add = false, onDone } = {}) {
+    sheet(add ? 'Add a phone number' : 'Continue with phone', (body, close) => {
+        let mode = startMode === 'signup' ? 'signup' : 'login';
+        let sentTo = '';
+        const tabs = h('div', { class: 'phone-tabs' });
+        const username = h('input', { type: 'text', autocomplete: 'username', placeholder: 'yourname', maxlength: 20, autocapitalize: 'none', spellcheck: 'false' });
+        const phone = h('input', { type: 'tel', autocomplete: 'tel', inputmode: 'tel', placeholder: '(555) 123-4567 or +44 7700 900123', maxlength: 24 });
+        const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '123456', maxlength: 8 });
+        const userField = field('Username', h('div', { class: 'input-wrap' }, h('span', { class: 'prefix', text: '@' }), username));
+        const codeField = field('Code from the text', code);
+        const send = h('button', { type: 'button', class: 'btn primary block lg' }, icon('phone'), 'Text me a code');
+        const verify = h('button', { type: 'button', class: 'btn primary block lg', text: add ? 'Add this number' : 'Verify and continue' });
+        const again = h('button', { type: 'button', class: 'link-btn', text: 'Send a new code' });
+        const error = h('p', { class: 'form-error', role: 'alert' });
+        const note = h('p', { class: 'fine muted' });
+        username.oninput = () => (username.value = username.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+
+        function draw() {
+            if (!add) {
+                fill(
+                    tabs,
+                    segmented(
+                        [
+                            ['login', 'Log in'],
+                            ['signup', 'New account']
+                        ],
+                        mode,
+                        (v) => ((mode = v), draw()),
+                        'Log in or new account'
+                    )
+                );
+            }
+            userField.hidden = add || mode !== 'signup' || !!sentTo;
+            phone.disabled = !!sentTo;
+            send.hidden = !!sentTo;
+            codeField.hidden = verify.hidden = again.hidden = !sentTo;
+            note.textContent = sentTo
+                ? `We texted a code to ${sentTo}. It can take a minute.`
+                : 'We text you a 6-digit code. Normal text message rates may apply. Your number is never shown to anyone.';
+        }
+        async function sendCode() {
+            error.textContent = '';
+            const number = normalizePhone(phone.value);
+            if (!number) return (error.textContent = 'Enter your phone number, with the country code if it isn\'t a US number (like +44…).');
+            if (!add && mode === 'signup') {
+                if (!validUsername(username.value)) return (error.textContent = 'Pick a username: 3–20 letters, numbers or _.');
+                if (!(await app.backend.auth.usernameAvailable(username.value))) return (error.textContent = 'That username is taken.');
+            }
+            try {
+                if (add) await app.backend.auth.addPhone(number);
+                else await app.backend.auth.sendPhoneCode(number, mode === 'signup' ? username.value : null);
+                sentTo = number;
+                draw();
+                code.focus();
+                if (app.backend.kind === 'demo') toast('Demo: the code is 123456', 'info', 6000);
+            } catch (e) {
+                error.textContent = errorText(e);
+            }
+        }
+        send.onclick = () => withBusy(send, sendCode);
+        again.onclick = () => {
+            sentTo = '';
+            code.value = '';
+            draw();
+            withBusy(send, sendCode);
+        };
+        verify.onclick = () =>
+            withBusy(verify, async () => {
+                error.textContent = '';
+                const c = code.value.replace(/\D/g, '');
+                if (c.length < 6) return (error.textContent = 'Enter the 6-digit code.');
+                try {
+                    if (add) {
+                        await app.backend.auth.confirmPhone(sentTo, c);
+                        toast('Phone number added', 'success');
+                    } else {
+                        await app.backend.auth.verifyPhoneCode(sentTo, c);
+                    }
+                    close();
+                    if (onDone) onDone(sentTo);
+                } catch (e) {
+                    error.textContent = errorText(e);
+                }
+            });
+        code.addEventListener('keydown', (e) => e.key === 'Enter' && verify.click());
+        phone.addEventListener('keydown', (e) => e.key === 'Enter' && send.click());
+        body.append(tabs, userField, field('Phone number', phone), codeField, error, send, verify, h('div', { class: 'auth-links' }, again), note);
+        draw();
+    });
 }
 
 function resetFlow(prefill) {

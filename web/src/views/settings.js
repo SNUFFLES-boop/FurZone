@@ -5,6 +5,7 @@ import { passwordStrength } from '../format.js';
 import { connectionsSection } from './connect.js';
 import { updateSection } from './updates.js';
 import { editProfile } from './profile.js';
+import { phoneFlow } from './login.js';
 import { VERSION } from '../config.js';
 import { myRank, roleBadge } from '../staff.js';
 
@@ -54,6 +55,18 @@ export function renderSettings(view) {
         return holder;
     }
 
+    // Phone number: shown hidden except the last digits; add or change it with a texted code.
+    const phoneLabel = h('span', { class: 'muted small' });
+    const phoneItem = item('phone', 'Phone number', () => phoneFlow('login', { add: true, onDone: loadPhone }), phoneLabel);
+    function loadPhone() {
+        if (!app.backend.auth.myPhone) return;
+        app.backend.auth
+            .myPhone()
+            .then((p) => (phoneLabel.textContent = p ? `•••• ${p.slice(-4)}` : 'Add'))
+            .catch(() => {});
+    }
+    loadPhone();
+
     function draw() {
         const L = look();
         fill(
@@ -69,7 +82,8 @@ export function renderSettings(view) {
             group(
                 'Account',
                 item('edit', 'Edit profile', () => editProfile(app.me, () => {})),
-                item('lock', 'Change password', changePassword)
+                item('lock', 'Change password', changePassword),
+                phoneItem
             ),
             group(
                 'Privacy',

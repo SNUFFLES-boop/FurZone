@@ -282,6 +282,11 @@ export function errorText(error) {
     if (/Failed to fetch|NetworkError|network/i.test(msg)) return "Can't reach the server. Check your connection.";
     if (/JWT|session.*(expired|missing)|not logged in/i.test(msg)) return 'Your session ended. Log in again.';
     if (/User is banned/i.test(msg)) return 'This account is banned.';
+    if (/phone provider|phone_provider_disabled|Phone signups are disabled|sms_send_failed|Error sending (sms|confirmation)/i.test(msg))
+        return "Texting codes isn't switched on yet. Use email for now.";
+    if (/Signups not allowed for otp|otp_disabled/i.test(msg)) return 'No account uses that phone number yet. Create one, or log in with email and add your phone in Settings.';
+    if (/phone.*already been registered|phone_exists/i.test(msg)) return 'Another account already uses that phone number.';
+    if (/Token has expired or is invalid|otp_expired/i.test(msg)) return "That code didn't work. Check it, or send a new one.";
     if (/Database error saving new user/i.test(msg)) return "Couldn't create the account. Try another username.";
     return msg.length && msg.length < 160 ? msg : 'Something went wrong. Try again.';
 }

@@ -77,6 +77,22 @@ export function hueOf(name) {
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
+/**
+ * A phone number in international form (+15551234567), or '' if it doesn't look like one.
+ * US numbers can be typed without +1.
+ */
+export function normalizePhone(input) {
+    const raw = String(input || '').trim();
+    let digits = raw.replace(/[^\d]/g, '');
+    if (!raw.startsWith('+')) {
+        if (digits.length === 10) digits = '1' + digits;
+        else if (digits.length === 11 && digits.startsWith('1')) {
+            // already has the US country code
+        } else return '';
+    }
+    return /^[1-9]\d{7,14}$/.test(digits) ? '+' + digits : '';
+}
+
 /** "4K", "Full HD", "HD" or "" for a picture or video size. */
 export function qualityLabel(w, h) {
     const side = Math.min(Number(w) || 0, Number(h) || 0);

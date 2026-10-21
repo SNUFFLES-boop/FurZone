@@ -5878,3 +5878,22 @@ html.player-open .scrim {
     user-select: none;
     -webkit-touch-callout: none;
 }
+
+/* Phone number login */
+.phone-btn {
+    margin-top: 10px;
+    gap: 8px;
+}
+
+.phone-tabs .segmented {
+    display: flex;
+    width: 100%;
+    margin-bottom: 4px;
+    background: var(--surface-2);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.phone-tabs .seg {
+    flex: 1;
+}

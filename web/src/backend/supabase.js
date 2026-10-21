@@ -171,6 +171,30 @@ export function createSupabaseBackend(url, anonKey) {
             async changePassword(newPassword) {
                 await must(client.auth.updateUser({ password: newPassword }));
             },
+            /** Texts a 6-digit code. With a username it can make a new account; without, only logs in. */
+            async sendPhoneCode(phone, username) {
+                await must(
+                    client.auth.signInWithOtp({
+                        phone,
+                        options: username ? { shouldCreateUser: true, data: { username, display_name: username } } : { shouldCreateUser: false }
+                    })
+                );
+            },
+            async verifyPhoneCode(phone, code) {
+                await must(client.auth.verifyOtp({ phone, token: code, type: 'sms' }));
+            },
+            /** Adds (or changes) the phone number on the logged-in account: texts a code to it. */
+            async addPhone(phone) {
+                await must(client.auth.updateUser({ phone }));
+            },
+            async confirmPhone(phone, code) {
+                await must(client.auth.verifyOtp({ phone, token: code, type: 'phone_change' }));
+            },
+            async myPhone() {
+                const { data } = await client.auth.getUser();
+                const p = data && data.user && data.user.phone;
+                return p ? '+' + String(p).replace(/^\+/, '') : '';
+            },
             /** Where to send the person to log in with Discord (the app navigates there). */
             discordLoginUrl: (redirectTo) => oauthUrl('login', redirectTo),
             discordLinkUrl: (redirectTo) => oauthUrl('link', redirectTo),

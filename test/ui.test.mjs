@@ -613,6 +613,37 @@ await test('settings, then log out back to the login screen', async () => {
     await page.locator('.slide').first().waitFor();
 });
 
+await test('phone numbers: add one in Settings, then log in with a texted code', async () => {
+    await page.locator('.tabbar .nav-me').click();
+    await page.locator('.profile-actions a[href="#/settings"]').click();
+    await page.locator('.settings-item', { hasText: 'Phone number' }).click();
+    await page.getByPlaceholder('(555) 123-4567').fill('555 123');
+    await page.getByRole('button', { name: 'Text me a code' }).click();
+    await text('Enter your phone number');
+    await page.getByPlaceholder('(555) 123-4567').fill('(555) 201-7788');
+    await page.getByRole('button', { name: 'Text me a code' }).click();
+    await text('We texted a code to +15552017788');
+    await page.getByPlaceholder('123456').fill('111111');
+    await page.getByRole('button', { name: 'Add this number' }).click();
+    await text("That code didn't work");
+    await page.getByPlaceholder('123456').fill('123456');
+    await page.getByRole('button', { name: 'Add this number' }).click();
+    await toastSays('Phone number added');
+    await page.locator('.settings-item', { hasText: '•••• 7788' }).waitFor();
+    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.locator('.auth-form').waitFor();
+    await page.getByRole('button', { name: 'Continue with phone number' }).click();
+    await page.getByRole('tab', { name: 'Log in' }).last().click();
+    await page.getByPlaceholder('(555) 123-4567').fill('+1 555 201 7788');
+    await page.getByRole('button', { name: 'Text me a code' }).click();
+    await shot('01b-phone-login');
+    await page.getByPlaceholder('123456').fill('123456');
+    await page.getByRole('button', { name: 'Verify and continue' }).click();
+    await page.locator('.tabbar').waitFor();
+    await page.locator('.tabbar .nav-me').click();
+    await page.locator('.profile-id', { hasText: 'testfox' }).waitFor();
+});
+
 await test('desktop layout: side menu instead of the tab bar', async () => {
     await page.setViewportSize({ width: 1280, height: 820 });
     await page.locator('.rail-nav').waitFor();
