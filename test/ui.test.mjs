@@ -342,6 +342,16 @@ await test('the Lounge: chat shared with Discord', async () => {
     await page.locator('.chat-line.from-discord', { hasText: 'Kiwi' }).last().waitFor();
     await shot('11e-lounge');
     await noJunkText('lounge');
+    // Who's here: FurZone people and Discord people.
+    await page.getByRole('button', { name: 'Who is here' }).click();
+    await page.locator('.who-section', { hasText: 'Discord' }).getByText('Rexy').waitFor();
+    await page.locator('.who-section', { hasText: 'FurZone' }).getByText('testfox').first().waitFor();
+    await shot('11e2-lounge-people');
+    await page.getByRole('button', { name: 'Close' }).click();
+    // The owner can check the Discord link.
+    await page.locator('.lounge-status').click();
+    await page.locator('.link-check.ok').first().waitFor();
+    await page.getByRole('button', { name: 'Close' }).click();
     const composer = await page.locator('.chat-composer').boundingBox();
     const tabbar = await page.locator('.tabbar').boundingBox();
     assert.ok(composer.y + composer.height <= tabbar.y + 1, 'the message box sits above the tab bar');

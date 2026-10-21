@@ -119,3 +119,76 @@ export async function syncFromDiscord(deps) {
     const added = await deps.rpc('lounge_ingest', { p_rows: rows, p_last_id: newestId(res.json, after) });
     return { added: Number(added) || 0 };
 }
+
+/**
+ * Checks each part of the Discord link and says in plain words what works and what to fix. Never returns secrets.
+ * deps: { discord(path, { bot }) -> { status, json }, webhook: { id, token } | null, channelId, hasBotToken }
+ */
+export async function checkDiscordLink(deps) {
+    const out = [];
+    const add = (ok, text) => out.push({ ok, text });
+    let webhookChannel = null;
+    if (!deps.webhook) {
+        add(false, 'DISCORD_WEBHOOK_URL is missing or is not a Discord webhook link (it starts with https://discord.com/api/webhooks/).');
+    } else {
+        const r = await deps.discord(`/webhooks/${deps.webhook.id}/${deps.webhook.token}`, { bot: false });
+        if (r.status === 200 && r.json) {
+            webhookChannel = String(r.json.channel_id || '');
+            add(true, 'The webhook works: FurZone messages can go to Discord.');
+        } else {
+            add(false, 'The webhook link does not work (it may have been deleted). Make a new webhook and update DISCORD_WEBHOOK_URL.');
+        }
+    }
+    if (!deps.hasBotToken) {
+        add(false, 'DISCORD_BOT_TOKEN is missing, so FurZone cannot read Discord messages.');
+        return out;
+    }
+    if (!SNOWFLAKE.test(deps.channelId || '')) {
+        add(false, 'DISCORD_CHANNEL_ID is missing or is not a channel ID (it is a long number).');
+        return out;
+    }
+    const me = await deps.discord('/users/@me', { bot: true });
+    if (me.status === 401) {
+        add(false, 'The bot token is wrong. In the Discord developer page: Bot -> Reset Token, then put the new one in DISCORD_BOT_TOKEN. (It is not the "Client Secret".)');
+        return out;
+    }
+    if (me.status !== 200) {
+        add(false, `Discord did not accept the bot (answer ${me.status}). Try again in a minute.`);
+        return out;
+    }
+    const botName = (me.json && me.json.username) || 'The bot';
+    add(true, `The bot token works (${botName}).`);
+    if (webhookChannel && webhookChannel !== deps.channelId) {
+        add(false, 'The webhook posts into a different channel than DISCORD_CHANNEL_ID. Copy the ID of the channel the webhook is in.');
+    }
+    const ch = await deps.discord(`/channels/${deps.channelId}`, { bot: true });
+    if (ch.status === 404) {
+        add(false, 'Discord cannot find that channel. Right-click the channel -> Copy Channel ID (not the server ID).');
+        return out;
+    }
+    if (ch.status === 403) {
+        add(false, `${botName} cannot see the channel. Invite the bot to your server (OAuth2 -> URL Generator -> bot), and make sure it can View Channel there.`);
+        return out;
+    }
+    if (ch.status !== 200) {
+        add(false, `Discord answered ${ch.status} for the channel.`);
+        return out;
+    }
+    add(true, `${botName} can see #${(ch.json && ch.json.name) || 'the channel'}.`);
+    const msgs = await deps.discord(`/channels/${deps.channelId}/messages?limit=20`, { bot: true });
+    if (msgs.status === 403) {
+        add(false, `${botName} cannot read the channel's messages. Give it "Read Message History" in that channel.`);
+        return out;
+    }
+    if (msgs.status !== 200 || !Array.isArray(msgs.json)) {
+        add(false, `Discord answered ${msgs.status} when reading messages.`);
+        return out;
+    }
+    const fromPeople = msgs.json.filter((m) => m && m.author && !m.author.bot && !m.webhook_id && (m.type === 0 || m.type === 19));
+    if (fromPeople.length && fromPeople.every((m) => !m.content && !(m.attachments || []).length && !(m.embeds || []).length)) {
+        add(false, 'Messages come through empty: turn on "Message Content Intent" (Discord developer page -> Bot) and press Save.');
+        return out;
+    }
+    add(true, fromPeople.length ? `${botName} can read messages: Discord messages will show in the Lounge.` : `${botName} can read the channel. Say something in Discord to try it.`);
+    return out;
+}

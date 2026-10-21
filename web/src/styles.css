@@ -4490,3 +4490,77 @@ label.settings-item {
     width: 18px;
     height: 18px;
 }
+
+/* Lounge: who's here, and the Discord link check (admins) */
+.lounge-head-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+button.lounge-status {
+    border: 0;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+button.lounge-status:disabled {
+    cursor: default;
+    opacity: 1;
+}
+
+.lounge-status.broken {
+    background: rgba(251, 113, 133, 0.18);
+    color: #fda4af;
+}
+
+.who-section {
+    margin-top: 14px;
+}
+
+.who-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font: 600 15px var(--font-fun);
+}
+
+.who-title .icon {
+    width: 18px;
+    height: 18px;
+}
+
+.link-checks {
+    display: grid;
+    gap: 8px;
+}
+
+.link-check {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    font-size: 14px;
+}
+
+.link-check .icon {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+}
+
+.link-check.ok .icon {
+    color: var(--good);
+}
+
+.link-check.bad {
+    background: rgba(251, 113, 133, 0.12);
+}
+
+.link-check.bad .icon {
+    color: var(--bad);
+}

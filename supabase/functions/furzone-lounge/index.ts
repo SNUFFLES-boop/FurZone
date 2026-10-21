@@ -3,13 +3,14 @@
 // POST { action: 'status' }        -> { sending, reading }  (is the Discord bridge set up?)
 // POST { action: 'send', body }    -> the new chat row      (saved as the logged-in person, then sent to Discord)
 // POST { action: 'sync' }          -> { added }             (pulls new Discord messages in; shared, rate-limited)
+// POST { action: 'check' }         -> { checks: [{ ok, text }] }  (admins: what works and what to fix)
 //
 // Secrets (Supabase -> Edge Functions -> Secrets), all optional; without them the Lounge is FurZone-only:
 //   DISCORD_WEBHOOK_URL   a webhook for the channel (Channel settings -> Integrations -> Webhooks)
 //   DISCORD_BOT_TOKEN     a bot in your server that can read that channel (Message Content intent on)
 //   DISCORD_CHANNEL_ID    the channel's id (Developer Mode -> right-click the channel -> Copy Channel ID)
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { DISCORD_API, parseWebhookUrl, webhookPayload, syncFromDiscord } from './logic.js';
+import { DISCORD_API, parseWebhookUrl, webhookPayload, syncFromDiscord, checkDiscordLink } from './logic.js';
 
 const CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -98,6 +99,29 @@ Deno.serve(async (req) => {
                 }
             });
             return reply(200, result);
+        }
+
+        if (body.action === 'check') {
+            const { data: staffRow } = await admin.from('staff').select('role').eq('user_id', who.user.id).maybeSingle();
+            if (!staffRow || !['owner', 'admin'].includes(staffRow.role)) return reply(403, { error: 'Only admins can check the Discord link.' });
+            const checks = await checkDiscordLink({
+                webhook,
+                channelId,
+                hasBotToken: !!botToken,
+                async discord(path: string, { bot }: { bot: boolean }) {
+                    const res = await fetch(DISCORD_API + path, {
+                        headers: bot ? { Authorization: `Bot ${botToken}`, 'User-Agent': 'FurZone Lounge (https://github.com/SNUFFLES-boop/FurZone, 1.0)' } : {}
+                    });
+                    let json = null;
+                    try {
+                        json = await res.json();
+                    } catch {
+                        // not JSON
+                    }
+                    return { status: res.status, json };
+                }
+            });
+            return reply(200, { checks });
         }
 
         return reply(400, { error: 'Unknown action.' });

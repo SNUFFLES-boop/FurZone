@@ -998,6 +998,14 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         async loungeSync() {
             return { added: 0 };
         },
+        async loungeCheck() {
+            staffNeed(3);
+            return [
+                { ok: true, text: 'The webhook works: FurZone messages can go to Discord.' },
+                { ok: true, text: 'The bot token works (FurZoneBot).' },
+                { ok: true, text: 'FurZoneBot can read messages: Discord messages will show in the Lounge.' }
+            ];
+        },
         async loungeDelete(chatId) {
             const a = me();
             const i = chat.findIndex((m) => m.id === chatId);

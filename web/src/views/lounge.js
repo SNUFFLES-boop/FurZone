@@ -1,6 +1,6 @@
 // The Lounge: one big chat room, IRC style. When the Discord bridge is set up, messages go both ways
 // between FurZone and a Discord channel.
-import { h, icon, avatar, fill, errorText, spinner, toast, confirmDialog, flagPill } from '../ui.js';
+import { h, icon, avatar, fill, errorText, spinner, toast, confirmDialog, flagPill, sheet } from '../ui.js';
 import { app } from '../state.js';
 import { hueOf } from '../format.js';
 import { roleBadge, myRank } from '../staff.js';
@@ -47,7 +47,9 @@ export function renderLounge(body, ctx) {
     let loadingOlder = false;
     let noMoreOlder = false;
 
-    const pill = h('span', { class: 'lounge-status' }, 'Connecting…');
+    let syncProblem = '';
+    const pill = h('button', { class: 'lounge-status', type: 'button', onclick: () => myRank() >= 3 && checkLink() }, 'Connecting…');
+    const peopleBtn = h('button', { class: 'icon-btn sm lounge-people', type: 'button', 'aria-label': 'Who is here', title: 'Who is here', onclick: () => whoIsHere() }, icon('user'));
     const log = h('div', { class: 'lounge-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Lounge chat' }, spinner());
     const input = h('input', { type: 'text', maxlength: 1000, placeholder: 'Say something nice…', 'aria-label': 'Message', enterkeyhint: 'send', autocomplete: 'off' });
     const send = h('button', { class: 'icon-btn send-btn', 'aria-label': 'Send', type: 'submit' }, icon('send'));
@@ -64,7 +66,7 @@ export function renderLounge(body, ctx) {
         h(
             'div',
             { class: 'lounge' },
-            h('div', { class: 'lounge-head' }, h('span', { class: 'lounge-title' }, icon('hash'), 'lounge'), pill),
+            h('div', { class: 'lounge-head' }, h('span', { class: 'lounge-title' }, icon('hash'), 'lounge'), h('span', { class: 'lounge-head-right' }, peopleBtn, pill)),
             log,
             h('p', { class: 'lounge-rules fine' }, 'Be kind. Messages here are public', status.sending ? ' and also shared to Discord.' : '.'),
             composer
@@ -74,8 +76,12 @@ export function renderLounge(body, ctx) {
 
     function setStatus() {
         const linked = status.sending || status.reading;
-        fill(pill, icon(linked ? 'discord' : 'paw'), linked ? 'Linked with Discord' : 'FurZone only');
-        pill.classList.toggle('linked', linked);
+        // Admins see when the Discord link needs fixing, and can tap to find out what's wrong.
+        const broken = myRank() >= 3 && (!!syncProblem || (linked && !(status.sending && status.reading)));
+        fill(pill, icon(linked ? 'discord' : 'paw'), broken ? 'Discord: needs a fix' : linked ? 'Linked with Discord' : 'FurZone only');
+        pill.classList.toggle('linked', linked && !broken);
+        pill.classList.toggle('broken', broken);
+        pill.disabled = myRank() < 3;
         fill(rules, 'Be kind. Messages here are public', status.sending ? ' and are also shared to our Discord.' : '.');
     }
 
@@ -220,8 +226,62 @@ export function renderLounge(body, ctx) {
         if (status.reading && document.visibilityState === 'visible') {
             const r = await app.backend.loungeSync();
             if (alive && r && r.added) queueRefresh();
+            const problem = (r && r.error) || '';
+            if (alive && problem !== syncProblem) {
+                syncProblem = problem;
+                setStatus();
+            }
         }
         if (alive) syncTimer = setTimeout(sync, SYNC_MS);
+    }
+
+    /** Everyone who chatted in the messages loaded here, FurZone people and Discord people. */
+    function whoIsHere() {
+        const fz = new Map();
+        const dc = new Map();
+        for (const m of [...msgs].reverse()) {
+            if (m.source === 'discord') {
+                const name = m.discord_author || 'Discord user';
+                if (!dc.has(name)) dc.set(name, m);
+            } else if (m.user && !fz.has(m.user.id)) fz.set(m.user.id, m);
+        }
+        sheet('In the Lounge', (b, close) => {
+            const section = (title, ic, rows, empty) =>
+                h('section', { class: 'who-section' }, h('h3', { class: 'who-title' }, icon(ic), title, h('span', { class: 'count-pill', text: String(rows.length) })), rows.length ? h('div', { class: 'people' }, rows) : h('p', { class: 'muted', text: empty }));
+            const fzRows = [...fz.values()].map((m) =>
+                h('a', { class: 'person person-link', href: `#/u/${m.user.username}`, onclick: () => close() }, avatar(m.user, 'md', m.user.avatar_url), h('span', { class: 'name-line' }, h('span', { class: 'name-top' }, h('strong', { text: m.user.display_name || m.user.username }), roleBadge(m.user.role), flagPill(m.user.flag)), h('span', { class: 'name-sub', text: '@' + m.user.username + ' · on FurZone' })))
+            );
+            const dcRows = [...dc.entries()].map(([name, m]) =>
+                h(
+                    'div',
+                    { class: 'person' },
+                    m.discord_avatar ? h('span', { class: 'avatar avatar-md' }, h('img', { src: m.discord_avatar, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : avatar({ username: name }, 'md'),
+                    h('span', { class: 'name-line' }, h('span', { class: 'name-top' }, h('strong', { text: name }), h('span', { class: 'chat-src' }, icon('discord'))), h('span', { class: 'name-sub', text: 'on Discord' }))
+                )
+            );
+            b.append(
+                h('p', { class: 'muted', text: 'People who chatted here recently.' }),
+                section('FurZone', 'paw', fzRows, 'No one from FurZone yet.'),
+                section('Discord', 'discord', dcRows, status.reading ? 'No one from Discord yet.' : 'Discord isn\'t linked yet.')
+            );
+        }, { tall: true });
+    }
+
+    /** Admins: check each part of the Discord link and show what to fix. */
+    function checkLink() {
+        sheet('Discord link', (b) => {
+            const list = h('div', { class: 'link-checks' }, spinner('Checking'));
+            b.append(h('p', { class: 'muted', text: 'Checking the webhook, the bot and the channel…' }), list);
+            app.backend
+                .loungeCheck()
+                .then((checks) =>
+                    fill(
+                        list,
+                        checks.map((c) => h('div', { class: 'link-check' + (c.ok ? ' ok' : ' bad') }, icon(c.ok ? 'check' : 'close'), h('span', { text: c.text })))
+                    )
+                )
+                .catch((e) => fill(list, h('p', { class: 'form-error', text: errorText(e) })));
+        });
     }
 
     const stop = app.backend.subscribeLounge(queueRefresh);

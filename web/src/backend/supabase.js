@@ -690,9 +690,13 @@ export function createSupabaseBackend(url, anonKey) {
         async loungeSync() {
             try {
                 return await invoke('furzone-lounge', { action: 'sync' });
-            } catch {
-                return { added: 0 };
+            } catch (e) {
+                return { added: 0, error: e.message };
             }
+        },
+        /** Admins: which parts of the Discord link work, and what to fix. */
+        async loungeCheck() {
+            return (await invoke('furzone-lounge', { action: 'check' })).checks || [];
         },
         async loungeDelete(id) {
             await must(client.from('chat_messages').delete().eq('id', id));

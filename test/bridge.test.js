@@ -1,7 +1,7 @@
 // The Discord bridge and VRChat news logic, with Discord and Steam replaced by fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWebhookUrl, webhookName, webhookPayload, plainText, discordToRows, newestId, syncFromDiscord } from '../supabase/functions/furzone-lounge/logic.js';
+import { parseWebhookUrl, webhookName, webhookPayload, plainText, discordToRows, newestId, syncFromDiscord, checkDiscordLink } from '../supabase/functions/furzone-lounge/logic.js';
 import { cleanSteamText, parseSteamNews, newsWebhookPayload, refreshNews } from '../supabase/functions/vrchat-news/logic.js';
 
 const TOKEN = 'abcDEF123_-abcDEF123_-abcDEF123';
@@ -139,4 +139,37 @@ test('VRChat news refresh: throttled, stores new ones, posts at most 3 to Discor
     assert.deepEqual(result, { added: 5 });
     assert.deepEqual(posted.map((p) => p.embeds[0].title), ['U2', 'U3', 'U4']);
     await assert.rejects(refreshNews({ ...base, fetchJson: async () => ({ status: 500 }), rpc: async () => true }), /Steam answered 500/);
+});
+
+test('Discord link check: says exactly what is wrong', async () => {
+    const CH = '1300000000000000001';
+    const hook = { id: '1300000000000000099', token: TOKEN };
+    const fake = (answers) => async (path) => {
+        for (const [prefix, r] of answers) if (path.startsWith(prefix)) return r;
+        return { status: 500, json: null };
+    };
+    const human = { id: '1300000000000000201', type: 0, author: { id: '1300000000000000300', username: 'rexy' }, content: 'hi' };
+    const good = [
+        ['/webhooks/', { status: 200, json: { channel_id: CH } }],
+        ['/users/@me', { status: 200, json: { username: 'FurZoneBot' } }],
+        [`/channels/${CH}/messages`, { status: 200, json: [human] }],
+        [`/channels/${CH}`, { status: 200, json: { name: 'lounge' } }]
+    ];
+    let r = await checkDiscordLink({ webhook: hook, channelId: CH, hasBotToken: true, discord: fake(good) });
+    assert.ok(r.every((c) => c.ok), JSON.stringify(r));
+
+    r = await checkDiscordLink({ webhook: hook, channelId: CH, hasBotToken: true, discord: fake([['/users/@me', { status: 401 }], ...good]) });
+    assert.match(r.find((c) => !c.ok).text, /bot token is wrong/);
+
+    r = await checkDiscordLink({ webhook: hook, channelId: CH, hasBotToken: true, discord: fake([[`/channels/${CH}/messages`, { status: 200, json: [human] }], [`/channels/${CH}`, { status: 403 }], ...good]) });
+    assert.match(r.find((c) => !c.ok).text, /cannot see the channel/);
+
+    r = await checkDiscordLink({ webhook: hook, channelId: CH, hasBotToken: true, discord: fake([[`/channels/${CH}/messages`, { status: 200, json: [{ ...human, content: '' }] }], ...good]) });
+    assert.match(r.find((c) => !c.ok).text, /Message Content Intent/);
+
+    r = await checkDiscordLink({ webhook: hook, channelId: CH, hasBotToken: true, discord: fake([['/webhooks/', { status: 200, json: { channel_id: '1300000000000000555' } }], ...good]) });
+    assert.match(r.find((c) => !c.ok).text, /different channel/);
+
+    r = await checkDiscordLink({ webhook: null, channelId: '', hasBotToken: false, discord: fake(good) });
+    assert.equal(r.filter((c) => !c.ok).length, 2);
 });
