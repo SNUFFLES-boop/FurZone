@@ -709,3 +709,30 @@ create policy media_delete_own on storage.objects for delete to authenticated
 drop policy if exists media_list_own on storage.objects;
 create policy media_list_own on storage.objects for select to authenticated
   using (bucket_id = 'media' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ---------------------------------------------------------------- hardening (Supabase security advisor)
+
+-- Fixed search path on the two plain helper functions.
+alter function public.enforce_rate_limit(int, int, text) set search_path = public;
+alter function public.extract_tags(text) set search_path = public;
+
+-- Trigger functions run only from their triggers; nobody may call them through the API.
+revoke all on function public.rate_limit() from public, anon, authenticated;
+revoke all on function public.posts_before_write() from public, anon, authenticated;
+revoke all on function public.posts_after_change() from public, anon, authenticated;
+revoke all on function public.boops_after_change() from public, anon, authenticated;
+revoke all on function public.comments_after_change() from public, anon, authenticated;
+revoke all on function public.follows_after_change() from public, anon, authenticated;
+revoke all on function public.blocks_after_insert() from public, anon, authenticated;
+revoke all on function public.reports_after_insert() from public, anon, authenticated;
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+revoke all on function public.sync_discord_connection() from public, anon, authenticated;
+revoke all on function public.profiles_after_insert() from public, anon, authenticated;
+
+-- is_blocked only answers about yourself, so nobody can probe who blocked whom between other people.
+-- (Every policy calls it with auth.uid() as one side, so this changes nothing for the app.)
+create or replace function public.is_blocked(a uuid, b uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and auth.uid() in (a, b)
+     and exists (select 1 from blocks where (blocker_id = a and blocked_id = b) or (blocker_id = b and blocked_id = a))
+$$;
