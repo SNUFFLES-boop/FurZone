@@ -4,3 +4,9 @@ build/
 *.log
 .env
 .env.local
+android/signing/
+android/build/
+desktop/bin/
+desktop/obj/
+desktop/out/
+test/shots/
