@@ -2,8 +2,9 @@
 // the action rail. Used by the feed and the single-post page.
 import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump, flagPill, fill } from '../ui.js';
 import { look } from '../look.js';
-import { feedVideo } from './player.js';
-import { captionParts, compactCount, timeAgo, hueOf } from '../format.js';
+import { feedVideo, formatTime } from './player.js';
+import { openShare } from './share.js';
+import { captionParts, compactCount, timeAgo, hueOf, qualityLabel } from '../format.js';
 import { app } from '../state.js';
 import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
 
@@ -96,7 +97,7 @@ export function renderSlide(post, { onRemoved } = {}) {
             src: post.media_url,
             playsinline: true,
             loop: true,
-            preload: 'metadata',
+            preload: look().video === 'saver' ? 'none' : 'metadata',
             class: 'slide-video'
         });
         video.muted = app.muted;
@@ -119,9 +120,30 @@ export function renderSlide(post, { onRemoved } = {}) {
         );
     }
 
+    const mediaEl = media.querySelector('.slide-img, .slide-video');
+    if (mediaEl && mediaEl.tagName === 'IMG') {
+        mediaEl.addEventListener('load', () => {
+            mediaInfo.width = mediaEl.naturalWidth;
+            mediaInfo.height = mediaEl.naturalHeight;
+            drawBadges();
+        });
+    } else if (mediaEl) {
+        mediaEl.addEventListener('loadedmetadata', () => {
+            mediaInfo.width = mediaEl.videoWidth;
+            mediaInfo.height = mediaEl.videoHeight;
+            mediaInfo.duration = mediaEl.duration;
+            drawBadges();
+        });
+    }
+
     // ---- actions ----
     const boopCount = h('span', { class: 'rail-count', text: compactCount(post.boops) });
-    const boopBtn = h('button', { class: 'rail-btn boop' + (post.booped ? ' on' : ''), 'aria-pressed': String(post.booped), 'aria-label': 'Boop' }, icon('heart'), boopCount);
+    const boopBtn = h(
+        'button',
+        { class: 'rail-btn boop' + (post.booped ? ' on' : ''), 'aria-pressed': String(post.booped), 'aria-label': 'Like' },
+        h('span', { class: 'like-orb' }, icon('heartLine', 'like-off'), icon('heart', 'like-on'), h('span', { class: 'like-ring' })),
+        boopCount
+    );
     let booping = false;
     async function setBoop(on) {
         if (booping || post.booped === on) return;
@@ -145,14 +167,10 @@ export function renderSlide(post, { onRemoved } = {}) {
         boopBtn.setAttribute('aria-pressed', String(post.booped));
         bump(boopCount, compactCount(post.boops));
         bump(commentCount, compactCount(post.comments));
+        drawLikedBy();
     }
     boopBtn.onclick = () => {
-        if (!post.booped) {
-            boopBtn.classList.remove('pop');
-            void boopBtn.offsetWidth;
-            boopBtn.classList.add('pop');
-            heartFloat(boopBtn);
-        }
+        likeAnimation(boopBtn, !post.booped);
         setBoop(!post.booped);
     };
     const commentCount = h('span', { class: 'rail-count', text: compactCount(post.comments) });
@@ -162,8 +180,48 @@ export function renderSlide(post, { onRemoved } = {}) {
         icon('comment'),
         commentCount
     );
-    const shareBtn = h('button', { class: 'rail-btn', 'aria-label': 'Share', onclick: () => share(post) }, icon('share'), h('span', { class: 'rail-count', text: 'Share' }));
-    const moreBtn = h('button', { class: 'rail-btn', 'aria-label': 'More', onclick: () => postMenu(post, isMine, slide, onRemoved) }, icon('more'));
+    const shareBtn = h('button', { class: 'rail-btn', 'aria-label': 'Share', onclick: () => openShare(post) }, icon('share'), h('span', { class: 'rail-count', text: 'Share' }));
+    const moreBtn = h('button', { class: 'rail-btn', 'aria-label': 'More', onclick: () => postMenu(post, isMine, slide, onRemoved, mediaInfo) }, icon('more'));
+
+    // "Liked by mochi and 3 others", loaded the first time the post is on screen.
+    const likedBy = h('button', { class: 'liked-by', type: 'button', hidden: true, onclick: () => openLikers(post) });
+    let likers = null;
+    function drawLikedBy() {
+        if (!likers || !post.boops) {
+            likedBy.hidden = true;
+            return;
+        }
+        const others = likers.filter((u) => u.id !== app.me.id);
+        const first = post.booped ? 'you' : others[0] ? others[0].display_name || others[0].username : null;
+        if (!first) {
+            likedBy.hidden = true;
+            return;
+        }
+        const rest = post.boops - 1;
+        const faces = (post.booped ? [app.me, ...others] : others).slice(0, 3);
+        fill(
+            likedBy,
+            h('span', { class: 'liked-faces' }, faces.map((u) => avatar(u, 'xs', u.avatar_url))),
+            h('span', { class: 'liked-text' }, 'Liked by ', h('strong', { text: first }), rest > 0 ? [' and ', h('strong', { text: `${compactCount(rest)} other${rest === 1 ? '' : 's'}` })] : null)
+        );
+        likedBy.hidden = false;
+    }
+    async function loadLikers() {
+        if (likers || !post.boops || !app.backend.likers) return;
+        try {
+            likers = await app.backend.likers(post.id, 3);
+            drawLikedBy();
+        } catch {
+            // just a nice extra
+        }
+    }
+    // Picture/video details found once it loads: size, quality, length.
+    const mediaInfo = {};
+    const mediaBadges = h('div', { class: 'media-badges' });
+    function drawBadges() {
+        const q = qualityLabel(mediaInfo.width, mediaInfo.height);
+        fill(mediaBadges, q && h('span', { class: 'media-badge q' + (q === '4K' ? ' uhd' : '') }, q), mediaInfo.duration ? h('span', { class: 'media-badge' }, icon('play'), formatTime(mediaInfo.duration)) : null);
+    }
 
     const followBtn =
         !isMine && !post.following
@@ -193,12 +251,20 @@ export function renderSlide(post, { onRemoved } = {}) {
             h('a', { class: 'author-link', href: `#/u/${post.user.username}` }, avatar(post.user, 'md', post.user.avatar_url), nameLine(post.user)),
             followBtn
         ),
-        post.media_type && post.caption && captionNode(post.caption),
+        post.trend && h('span', { class: 'trend-pill' + (post.trend <= 3 ? ' top' : '') }, icon('flame'), `#${post.trend} Trending`),
+        post.media_type && post.caption && captionBlock(post.caption),
         post.credit && h('p', { class: 'credit' }, icon('palette'), captionNode(post.credit, 'credit-text', 'span')),
-        h('span', { class: 'when', text: timeAgo(post.created_at) + (post.views ? ` · ${compactCount(post.views)} view${post.views === 1 ? '' : 's'}` : '') })
+        likedBy,
+        h(
+            'span',
+            { class: 'when' },
+            timeAgo(post.created_at),
+            post.views ? ` · ${compactCount(post.views)} view${post.views === 1 ? '' : 's'}` : null,
+            post.comments ? ` · ${compactCount(post.comments)} comment${post.comments === 1 ? '' : 's'}` : null
+        )
     );
 
-    slide.append(media, h('div', { class: 'slide-shade', 'aria-hidden': 'true' }), info, h('div', { class: 'rail' }, boopBtn, commentBtn, shareBtn, moreBtn));
+    slide.append(media, h('div', { class: 'slide-shade', 'aria-hidden': 'true' }), mediaBadges, info, h('div', { class: 'rail' }, boopBtn, commentBtn, shareBtn, moreBtn));
     // Video controls: seek bar, hold for 2×, sound, full screen (see player.js).
     const player = video ? feedVideo(slide, media, video, { post, onBoop: () => boopBtn.click(), isBooped: () => post.booped, onComments: () => openComments(post, () => sync()) }) : null;
 
@@ -211,7 +277,7 @@ export function renderSlide(post, { onRemoved } = {}) {
             clearTimeout(tapTimer);
             const r = slide.getBoundingClientRect();
             heartBurst(slide, e.clientX - r.left, e.clientY - r.top);
-            if (!post.booped) heartFloat(boopBtn);
+            if (!post.booped) likeAnimation(boopBtn, true);
             setBoop(true);
             lastTap = 0;
             return;
@@ -229,6 +295,9 @@ export function renderSlide(post, { onRemoved } = {}) {
 
     slide.activate = () => {
         slide.classList.add('active');
+        loadLikers();
+        // Best quality: load the whole video ahead so it never stops to buffer.
+        if (video && look().video !== 'saver') video.preload = 'auto';
         // Count a view once per post per app session (the server also counts each person only once).
         if (!isMine && !seen.has(post.id)) {
             seen.add(post.id);
@@ -251,23 +320,99 @@ export function renderSlide(post, { onRemoved } = {}) {
     return slide;
 }
 
-async function share(post) {
-    const text = `@${post.user.username} on FurZone${post.caption ? ': ' + post.caption.slice(0, 200) : ''}`;
-    try {
-        if (navigator.share) await navigator.share({ text });
-        else {
-            await navigator.clipboard.writeText(text);
-            toast('Copied to clipboard', 'success');
+/** The like button's animation: the heart pops, a ring and sparks fly out, little hearts float up. */
+export function likeAnimation(button, liking) {
+    button.classList.remove('pop', 'unpop');
+    void button.offsetWidth;
+    if (!liking) {
+        button.classList.add('unpop');
+        return;
+    }
+    button.classList.add('pop');
+    const orb = button.querySelector('.like-orb') || button;
+    for (let i = 0; i < 8; i++) {
+        const spark = h('i', { class: 'like-spark', style: { '--a': i * 45 + Math.round(Math.random() * 16 - 8) + 'deg', '--d': 30 + Math.round(Math.random() * 14) + 'px', '--s': (0.6 + Math.random() * 0.6).toFixed(2) } });
+        orb.append(spark);
+        setTimeout(() => spark.remove(), 700);
+    }
+    heartFloat(button, 3);
+    if (look().haptics && navigator.vibrate) {
+        try {
+            navigator.vibrate(12);
+        } catch {
+            // no vibration motor or not allowed
         }
-    } catch {
-        // share sheet closed
     }
 }
 
-function postMenu(post, isMine, slide, onRemoved) {
+/** A caption that folds after 3 lines, with "more" to open it. */
+function captionBlock(text) {
+    const p = captionNode(text);
+    p.classList.add('folded');
+    const more = h('button', { class: 'caption-more', type: 'button', text: 'more', hidden: true });
+    more.onclick = (e) => {
+        e.stopPropagation();
+        const open = p.classList.toggle('folded');
+        more.textContent = open ? 'more' : 'less';
+    };
+    requestAnimationFrame(() => {
+        if (p.scrollHeight > p.clientHeight + 2) more.hidden = false;
+    });
+    return h('div', { class: 'caption-wrap' }, p, more);
+}
+
+/** Everyone who liked a post. */
+function openLikers(post) {
+    sheet(
+        `Liked by ${compactCount(post.boops)}`,
+        (body) => {
+            const list = h('div', { class: 'people' }, h('div', { class: 'spinner' }));
+            body.append(list);
+            app.backend
+                .likers(post.id, 200)
+                .then((people) =>
+                    fill(
+                        list,
+                        people.length
+                            ? people.map((u) => h('a', { class: 'person person-link', href: `#/u/${u.username}` }, avatar(u, 'md', u.avatar_url), nameLine(u), h('span', { class: 'liked-heart' }, icon('heart'))))
+                            : h('p', { class: 'muted pad', text: 'No likes yet.' })
+                    )
+                )
+                .catch((e) => fill(list, h('p', { class: 'form-error', text: errorText(e) })));
+        },
+        { tall: true }
+    );
+}
+
+/** Everything about a post: when, how it's doing, and the picture or video itself. */
+function postDetails(post, mediaInfo) {
+    sheet('Post details', (body) => {
+        const row = (ic, label, value) => value !== null && value !== undefined && value !== '' && h('div', { class: 'detail-row' }, icon(ic), h('span', { class: 'grow muted', text: label }), h('strong', { text: String(value) }));
+        const q = qualityLabel(mediaInfo.width, mediaInfo.height);
+        body.append(
+            h(
+                'div',
+                { class: 'details' },
+                row('clock', 'Posted', new Date(post.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
+                post.trend && row('flame', 'Trending', `#${post.trend} this month`),
+                row('heart', 'Likes', compactCount(post.boops)),
+                row('comment', 'Comments', compactCount(post.comments)),
+                row('eye', 'Views', compactCount(post.views)),
+                row(post.media_type === 'video' ? 'video' : post.media_type === 'image' ? 'image' : 'comment', 'Type', post.media_type === 'video' ? 'Video' : post.media_type === 'image' ? 'Picture' : 'Text'),
+                mediaInfo.width ? row('fit', 'Size', `${mediaInfo.width} × ${mediaInfo.height}${q ? ` · ${q}` : ''}`) : null,
+                mediaInfo.duration ? row('clock', 'Length', formatTime(mediaInfo.duration)) : null,
+                post.tags.length ? row('hash', 'Tags', post.tags.map((t) => '#' + t).join(' ')) : null,
+                post.credit ? row('palette', 'Credit', post.credit) : null
+            )
+        );
+    });
+}
+
+function postMenu(post, isMine, slide, onRemoved, mediaInfo = {}) {
     sheet('Post', (body, close) => {
         const item = (ic, label, fn, danger) =>
             h('button', { class: 'menu-item' + (danger ? ' danger' : ''), onclick: () => (close(), fn()) }, icon(ic), h('span', { text: label }));
+        body.append(item('info', 'Post details', () => postDetails(post, mediaInfo)), item('share', 'Share…', () => openShare(post)));
         if (isMine) {
             body.append(
                 item('edit', 'Edit caption & credit', () => editPost(post, slide)),

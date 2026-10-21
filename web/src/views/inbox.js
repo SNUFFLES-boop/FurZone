@@ -213,7 +213,7 @@ export function renderInbox(view, ctx, tab = 'activity') {
         }
         function threadRow(t, i) {
             const o = t.other;
-            const preview = (t.last_from_me ? 'You: ' : '') + t.last_body;
+            const preview = ((t.last_from_me ? 'You: ' : '') + t.last_body).replace(/furzone:\/\/post\/[A-Za-z0-9_-]+/gi, '🖼 a post');
             const row = h(
                 'div',
                 { class: 'thread' + (t.unread ? ' unread' : ''), style: { '--i': String(Math.min(i, 12)) } },

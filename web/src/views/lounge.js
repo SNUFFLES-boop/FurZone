@@ -4,7 +4,7 @@ import { h, icon, avatar, fill, errorText, spinner, toast, confirmDialog, flagPi
 import { app } from '../state.js';
 import { hueOf } from '../format.js';
 import { roleBadge, myRank } from '../staff.js';
-import { openExternal } from '../platform.js';
+import { chatText } from './chattext.js';
 
 const SYNC_MS = 8000;
 
@@ -22,21 +22,6 @@ function dayLabel(iso) {
     return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-/** Text with web links made clickable. Links open outside the app. */
-function linkify(text) {
-    const out = [];
-    const re = /https:\/\/[^\s<>"]+/g;
-    let last = 0;
-    let m;
-    while ((m = re.exec(text))) {
-        if (m.index > last) out.push(text.slice(last, m.index));
-        const url = m[0].replace(/[.,!?)]+$/, '');
-        out.push(h('a', { class: 'chat-link', href: url, rel: 'noopener noreferrer nofollow', text: url, onclick: (e) => (e.preventDefault(), openExternal(url)) }));
-        last = m.index + url.length;
-    }
-    if (last < text.length) out.push(text.slice(last));
-    return out;
-}
 
 export function renderLounge(body, ctx) {
     let alive = true;
@@ -114,7 +99,7 @@ export function renderLounge(body, ctx) {
                 'div',
                 { class: 'chat-main' },
                 same ? null : h('div', { class: 'chat-top' }, who, h('time', { class: 'chat-time', datetime: m.created_at, text: clock(m.created_at) })),
-                h('p', { class: 'chat-body' }, linkify(m.body))
+                h('p', { class: 'chat-body' }, chatText(m.body))
             ),
             canDelete &&
                 h('button', {

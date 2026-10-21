@@ -110,6 +110,52 @@ await test('boop with the button and by double-tapping', async () => {
     await page.locator('.heart-burst').first().waitFor({ state: 'attached' });
 });
 
+await test('front page: new like button, liked by, popular, details and the share menu', async () => {
+    await page.locator('.cat-chip', { hasText: 'All' }).click();
+    const slide = page.locator('.slide').first();
+    await slide.waitFor();
+    // Liked from the last test: the heart is filled and the post says who liked it.
+    await slide.locator('.boop.on .like-on').waitFor();
+    await slide.locator('.liked-by', { hasText: 'Liked by' }).waitFor();
+    await slide.locator('.boop').click();
+    await slide.locator('.boop:not(.on)').waitFor();
+    await slide.locator('.boop').click();
+    await slide.locator('.like-spark').first().waitFor({ state: 'attached' });
+    await slide.locator('.liked-by', { hasText: 'you' }).waitFor();
+    await shot('03b-liked');
+    await slide.locator('.liked-by').click();
+    await page.locator('.sheet .person').first().waitFor();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.locator('.scrim').waitFor({ state: 'detached' });
+    // Post details.
+    await slide.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: 'Post details' }).click();
+    await page.locator('.detail-row', { hasText: 'Likes' }).waitFor();
+    await page.locator('.detail-row', { hasText: 'Posted' }).waitFor();
+    await noJunkText('post details');
+    await page.getByRole('dialog', { name: 'Post details' }).getByLabel('Close').click();
+    await page.locator('.scrim').waitFor({ state: 'detached' });
+    // Share menu.
+    await slide.getByRole('button', { name: 'Share' }).click();
+    for (const app of ['Discord', 'X', 'Instagram', 'Facebook', 'Reddit', 'WhatsApp', 'Copy', 'Lounge']) {
+        await page.locator('.share-tile', { hasText: new RegExp('^' + app + '$') }).waitFor();
+    }
+    await shot('03c-share');
+    await page.locator('.share-tile', { hasText: /^Copy$/ }).click();
+    await toastSays('Copied');
+    assert.match(await page.evaluate(() => navigator.clipboard.readText()), /on FurZone/);
+    await slide.getByRole('button', { name: 'Share' }).click();
+    await page.locator('.share-tile', { hasText: /^Lounge$/ }).click();
+    await toastSays('Shared in the Lounge');
+    // Popular: posts ranked by likes and comments, with a Trending badge.
+    await page.locator('.cat-chip', { hasText: 'Popular' }).click();
+    await page.locator('.slides .slide .trend-pill', { hasText: '#1 Trending' }).first().waitFor();
+    await shot('03d-popular');
+    await noJunkText('popular feed');
+    await page.locator('.cat-chip', { hasText: 'All' }).click();
+    await page.locator('.slide').first().waitFor();
+});
+
 await test('comments: read, add, and tags in them are links', async () => {
     const slide = page.locator('.slide', { hasText: 'First time out' }).first();
     await slide.scrollIntoViewIfNeeded();
@@ -165,6 +211,8 @@ await test('a picture post: uploads and shows uncropped', async () => {
     });
     await page.locator('input[type=file]').setInputFiles({ name: 'art.png', mimeType: 'image/png', buffer: Buffer.from(png) });
     await page.locator('.drop.has-media img').waitFor();
+    await page.locator('.quality-row .seg.on', { hasText: 'Best quality' }).waitFor();
+    await page.locator('.quality-info', { hasText: '300 × 500' }).waitFor();
     await page.getByPlaceholder('Say something about it').fill('New art! #art');
     await page.getByRole('button', { name: 'Post', exact: true }).click();
     await toastSays('Posted!');
@@ -408,6 +456,8 @@ await test('the Lounge: chat shared with Discord', async () => {
     await page.evaluate(() => (location.hash = '#/inbox/lounge'));
     await page.locator('.lounge-status', { hasText: 'Linked with Discord' }).waitFor();
     await page.locator('.chat-line.from-discord', { hasText: 'Rexy' }).waitFor();
+    // The post shared from the feed shows as an "Open post" button.
+    await page.locator('.chat-line .post-chip', { hasText: 'Open post' }).first().waitFor();
     await page.getByRole('textbox', { name: 'Message' }).fill('hello lounge 🐾');
     await page.getByRole('button', { name: 'Send' }).click();
     await page.locator('.chat-line.mine', { hasText: 'hello lounge' }).waitFor();

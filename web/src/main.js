@@ -38,7 +38,31 @@ const TABS = [
     ['me', 'Profile', 'user']
 ];
 
+/** Shared SVG paint: the gradient that fills a liked heart. */
+function addSvgDefs() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '0');
+    svg.setAttribute('height', '0');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.position = 'absolute';
+    const grad = document.createElementNS(NS, 'linearGradient');
+    grad.id = 'fz-like-grad';
+    for (const [k, v] of [['x1', '0'], ['y1', '0'], ['x2', '1'], ['y2', '1']]) grad.setAttribute(k, v);
+    for (const [offset, color] of [['0', '#f43f5e'], ['0.55', '#ec4899'], ['1', '#fb923c']]) {
+        const stop = document.createElementNS(NS, 'stop');
+        stop.setAttribute('offset', offset);
+        stop.setAttribute('stop-color', color);
+        grad.append(stop);
+    }
+    const defs = document.createElementNS(NS, 'defs');
+    defs.append(grad);
+    svg.append(defs);
+    document.body.append(svg);
+}
+
 async function boot() {
+    addSvgDefs();
     applyLook();
     startParticles();
     let backend;

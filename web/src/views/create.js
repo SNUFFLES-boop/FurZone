@@ -1,6 +1,7 @@
-import { h, icon, toast, errorText, withBusy, field, fill } from '../ui.js';
+import { h, icon, toast, errorText, withBusy, field, fill, segmented } from '../ui.js';
+import { look, setLook } from '../look.js';
 import { app, refreshMe } from '../state.js';
-import { mediaKind, prepareImage, checkVideo } from '../format.js';
+import { mediaKind, prepareImage, checkVideo, qualityLabel, fileSize } from '../format.js';
 import { extractTags } from '../backend/shape.js';
 import { restrictionText } from '../staff.js';
 
@@ -8,8 +9,11 @@ const QUICK_TAGS = ['skit', 'dance', 'vrchat', 'art', 'fursuit', 'meme', 'music'
 
 export function renderCreate(view, ctx) {
     let file = null;
+    let original = null;
     let kind = null;
     let previewUrl = '';
+    let quality = look().upload;
+    const qualityRow = h('div', { class: 'quality-row', hidden: true });
 
     const picker = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime', hidden: true });
     const drop = h('button', { type: 'button', class: 'drop', onclick: () => picker.click() });
@@ -52,30 +56,97 @@ export function renderCreate(view, ctx) {
         );
     }
 
+    // Standard: up to 2048 px, smaller files. Best: up to 4096 px (4K) at near-full quality. Videos upload as they are.
+    async function prepare() {
+        if (kind === 'image') {
+            return quality === 'best' ? prepareImage(original, 4096, 0.95) : prepareImage(original, 2048, 0.85);
+        }
+        return checkVideo(original);
+    }
+    function drawQuality(info) {
+        qualityRow.hidden = !file;
+        if (!file) return fill(qualityRow);
+        if (kind === 'image' && original.type !== 'image/gif') {
+            fill(
+                qualityRow,
+                h('div', { class: 'quality-head' }, icon('sparkles'), h('strong', { text: 'Upload quality' })),
+                segmented(
+                    [
+                        ['standard', 'Standard'],
+                        ['best', 'Best quality']
+                    ],
+                    quality,
+                    async (v) => {
+                        quality = v;
+                        setLook({ upload: v });
+                        fill(qualityRow, h('div', { class: 'spinner' }));
+                        try {
+                            const ready = await prepare();
+                            if (previewUrl) URL.revokeObjectURL(previewUrl);
+                            file = ready;
+                            previewUrl = URL.createObjectURL(ready);
+                            drawDrop();
+                        } catch (e) {
+                            toast(errorText(e), 'error');
+                        }
+                        drawQuality();
+                    },
+                    'Upload quality'
+                ),
+                h('span', { class: 'quality-info' }, `${file.width} × ${file.height}`, qualityLabel(file.width, file.height) && h('span', { class: 'media-badge q' }, qualityLabel(file.width, file.height)), ` · ${fileSize(file.size)}`)
+            );
+        } else {
+            fill(
+                qualityRow,
+                h('div', { class: 'quality-head' }, icon('sparkles'), h('strong', { text: kind === 'video' ? 'Video' : 'GIF' }), h('span', { class: 'muted', text: '· uploads in its original quality' })),
+                h('span', { class: 'quality-info' }, info || fileSize(file.size))
+            );
+        }
+    }
+
     function clearMedia() {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
+        original = null;
         file = null;
         kind = null;
         previewUrl = '';
         picker.value = '';
         drawDrop();
+        drawQuality();
     }
 
+    let prev = [null, null];
     picker.onchange = async () => {
         const f = picker.files && picker.files[0];
         if (!f) return;
         try {
             const k = mediaKind(f);
             fill(drop, h('div', { class: 'spinner' }));
-            const ready = k === 'image' ? await prepareImage(f) : await checkVideo(f);
+            prev = [original, kind];
+            original = f;
+            kind = k;
+            const ready = await prepare();
             if (previewUrl) URL.revokeObjectURL(previewUrl);
             file = ready;
-            kind = k;
             previewUrl = URL.createObjectURL(ready);
         } catch (e) {
             toast(errorText(e), 'error');
+            [original, kind] = prev;
         }
         drawDrop();
+        drawQuality();
+        if (kind === 'video' && file) {
+            // Show the video's size and length once the browser has read it.
+            const probe = document.createElement('video');
+            probe.preload = 'metadata';
+            probe.muted = true;
+            probe.src = previewUrl;
+            probe.onloadedmetadata = () => {
+                const q = qualityLabel(probe.videoWidth, probe.videoHeight);
+                const secs = Math.round(probe.duration || 0);
+                drawQuality(`${probe.videoWidth} × ${probe.videoHeight}${q ? ' · ' + q : ''} · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · ${fileSize(file.size)}`);
+            };
+        }
     };
 
     caption.oninput = () => {
@@ -105,13 +176,14 @@ export function renderCreate(view, ctx) {
         'form',
         { class: 'composer', novalidate: true },
         drop,
+        qualityRow,
         picker,
         field('Caption', caption, h('div', { class: 'row between' }, tagsLine, counter)),
         quick,
         field('Credit', credit),
         progress,
         postBtn,
-        h('p', { class: 'fine center', text: 'Safe-for-work only. Photos are resized and their hidden location data is removed before upload.' })
+        h('p', { class: 'fine center', text: 'Safe-for-work only. Photos are re-saved before upload, which removes hidden location data.' })
     );
 
     form.onsubmit = (e) => {

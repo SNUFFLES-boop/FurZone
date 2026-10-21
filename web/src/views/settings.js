@@ -123,8 +123,29 @@ export function renderSettings(view) {
                 item('refresh', 'Reset appearance', () => (resetLook(), draw(), toast('Back to the default look', 'success')), h('span'))
             ),
             group(
-                'Videos',
+                'Videos & pictures',
                 toggle('video', 'Play videos automatically', 'In the feed. Tap a video to play it when this is off.', L.autoplay, (on) => setLook({ autoplay: on })),
+                choice(
+                    'sparkles',
+                    'Video loading',
+                    [
+                        ['best', 'Best quality'],
+                        ['saver', 'Data saver']
+                    ],
+                    L.video,
+                    (v) => setLook({ video: v })
+                ),
+                choice(
+                    'image',
+                    'Picture uploads',
+                    [
+                        ['best', 'Best quality (4K)'],
+                        ['standard', 'Standard']
+                    ],
+                    L.upload,
+                    (v) => setLook({ upload: v })
+                ),
+                toggle('heart', 'Vibrate when I like something', null, L.haptics, (on) => setLook({ haptics: on })),
                 toggle('volume', 'Play videos with sound', null, !app.muted, (on) => savePref('muted', !on))
             ),
             myRank() >= 1 &&

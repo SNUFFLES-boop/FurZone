@@ -124,5 +124,12 @@ check('my insights', await rpc(FUR, 'my_insights'), (r) => r.status === 200 && t
 check('popular posts on a profile', await call(OWNER, `/posts?select=${q(`*, profiles!posts_user_id_fkey!inner(${PC})`)}&user_id=eq.${FUR}&order=boops_count.desc,views_count.desc,created_at.desc&limit=30`), (r) => r.status === 200);
 check('remove a follower', await call(FUR, `/follows?follower_id=eq.${OWNER}&followee_id=eq.${FUR}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }));
 check('follower is gone', await call(OWNER, `/follows?select=followee_id&follower_id=eq.${OWNER}&followee_id=eq.${FUR}`), (r) => r.status === 200 && r.body.length === 0);
+
+// ---- home feed and likers ----
+const hot = (await call(FUR, '/posts', { method: 'POST', body: JSON.stringify({ caption: 'hot one' }) })).body[0];
+await call(OWNER, '/boops', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ post_id: hot.id }) });
+check('home feed: newest', await rpc(OWNER, 'home_feed', { p_scope: 'all', p_sort: 'new', p_before: null, p_offset: 0, p_limit: 6, p_tag: null }), (r) => r.status === 200 && r.body.length >= 1 && 'views_count' in r.body[0]);
+check('home feed: popular', await rpc(OWNER, 'home_feed', { p_scope: 'all', p_sort: 'popular', p_before: null, p_offset: 0, p_limit: 6, p_tag: null }), (r) => r.status === 200 && r.body[0].id === hot.id && r.body[0].trend_rank === 1);
+check('who liked a post', await rpc(FUR, 'post_likers', { p_post: hot.id, p_limit: 3 }), (r) => r.status === 200 && r.body[0].username === 'owner1');
 console.log(fails ? `${fails} FAILED` : 'all server queries work');
 process.exit(fails ? 1 : 0);

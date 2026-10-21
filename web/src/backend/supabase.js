@@ -259,8 +259,19 @@ export function createSupabaseBackend(url, anonKey) {
             return must(client.rpc('trending_tags', { p_limit: 12 }));
         },
 
-        async feed({ scope = 'all', before = null, limit = 8, tag = null } = {}) {
-            const rows = await must(client.rpc('feed', { p_scope: scope, p_before: before, p_limit: limit, p_tag: tag }));
+        async feed({ scope = 'all', sort = 'new', before = null, offset = 0, limit = 8, tag = null } = {}) {
+            let { data: rows, error } = await client.rpc('home_feed', {
+                p_scope: scope,
+                p_sort: sort,
+                p_before: sort === 'popular' ? null : before,
+                p_offset: offset,
+                p_limit: limit,
+                p_tag: tag
+            });
+            // An older server without home_feed: newest posts only.
+            if (error && /home_feed|PGRST202|function/i.test(error.message + error.code)) {
+                rows = sort === 'popular' ? [] : await must(client.rpc('feed', { p_scope: scope, p_before: before, p_limit: limit, p_tag: tag }));
+            } else if (error) throw error;
             const roles = await rolesOf([...new Set(rows.map((r) => r.user_id))]);
             return rows.map((r) => shapePost({ ...r, role: roles.get(r.user_id) || null }));
         },
@@ -639,6 +650,11 @@ export function createSupabaseBackend(url, anonKey) {
             );
             const role = await roleOf(userIdArg);
             return rows.map((r) => shapePost({ ...r, ...r.profiles, id: r.id, role }));
+        },
+        /** People who hearted a post: people you follow first, then the newest. */
+        async likers(postId, limit = 50) {
+            const rows = await must(client.rpc('post_likers', { p_post: postId, p_limit: limit }));
+            return decorate(rows.map((r) => ({ ...shapeProfile(r), liked_at: r.liked_at })));
         },
         async followRequestCount() {
             const me = await userId();

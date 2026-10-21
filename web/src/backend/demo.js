@@ -296,11 +296,22 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     function note(action, target_user, target_post, details = {}) {
         staffLog.unshift({ id: staffLog.length + 1, actor_id: me(), action, target_user, target_post, details, created_at: iso(now()) });
     }
-    function row(p) {
+    /** Same "hot" ranking as the server: top 10 of the last 30 days among posts with hearts or comments. */
+    function hotRanks() {
+        const cutoff = now() - 30 * 24 * HOUR;
+        const score = (p) => (p.boops_count * 3 + p.comments_count * 4 + (p.views_count || 0)) / Math.pow((now() - Date.parse(p.created_at)) / HOUR + 2, 1.3);
+        const list = posts
+            .filter((p) => !p.hidden && !isBanned(p.user_id) && Date.parse(p.created_at) > cutoff && p.boops_count + p.comments_count > 0)
+            .sort((a, b) => score(b) - score(a) || (a.created_at < b.created_at ? 1 : -1));
+        return new Map(list.map((p, i) => [p.id, i + 1]));
+    }
+    function row(p, ranks) {
         const pr = profiles.get(p.user_id);
+        const rank = ranks instanceof Map ? ranks.get(p.id) : null;
         return normalizePost(
             {
                 ...p,
+                trend_rank: rank && rank <= 10 ? rank : null,
                 username: pr.username,
                 display_name: pr.display_name,
                 avatar_path: pr.avatar_path,
@@ -460,18 +471,35 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12).map(([tag, uses]) => ({ tag, uses }));
         },
 
-        async feed({ scope = 'all', before = null, limit = 8, tag = null } = {}) {
+        async feed({ scope = 'all', sort = 'new', before = null, offset = 0, limit = 8, tag = null } = {}) {
             const uid = me();
-            const rows = posts.filter(
+            const ranks = hotRanks();
+            let rows = posts.filter(
                 (p) =>
                     canSee(p) &&
                     !p.hidden &&
                     !isBanned(p.user_id) &&
-                    (!before || Date.parse(p.created_at) < Date.parse(before)) &&
+                    (sort === 'popular' || !before || Date.parse(p.created_at) < Date.parse(before)) &&
+                    (sort !== 'popular' || ranks.has(p.id)) &&
                     (!tag || p.tags.includes(String(tag).toLowerCase())) &&
                     (scope !== 'following' || p.user_id === uid || follows.has(`${uid}:${p.user_id}`))
             );
-            return delay(rows.slice(0, limit).map(row));
+            if (sort === 'popular') rows = rows.sort((a, b) => ranks.get(a.id) - ranks.get(b.id)).slice(offset);
+            return delay(rows.slice(0, limit).map((p) => row(p, ranks)));
+        },
+        async likers(postId, limit = 50) {
+            const a = me();
+            const p = posts.find((x) => x.id === postId && canSee(x));
+            if (!p) return [];
+            return delay(
+                [...boops]
+                    .filter((k) => k.endsWith(':' + postId))
+                    .map((k) => k.split(':')[0])
+                    .filter((u) => profiles.has(u) && !blocked(a, u) && !isBanned(u))
+                    .sort((x, y) => Number(follows.has(`${a}:${y}`)) - Number(follows.has(`${a}:${x}`)))
+                    .slice(0, limit)
+                    .map((u) => ({ ...P(profiles.get(u)), liked_at: boopAt.get(`${u}:${postId}`) || iso(now()) }))
+            );
         },
         async post(postId) {
             me();

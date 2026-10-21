@@ -10,6 +10,7 @@ let lastCategory = 'all';
 // Categories are hashtags, so older posts with the tag show up too. The New post page offers the same ones.
 export const CATEGORIES = [
     ['all', 'All', 'sparkles'],
+    ['popular', 'Popular', 'flame'],
     ['skit', 'Skits', 'video'],
     ['dance', 'Dances', 'music'],
     ['vrchat', 'VRChat', 'vrchat'],
@@ -28,6 +29,7 @@ export function slideList(container, load, { empty } = {}) {
     const list = h('div', { class: 'slides', tabindex: '0' });
     container.append(list);
     let before = null;
+    let count = 0;
     let done = false;
     let loading = false;
     let active = null;
@@ -72,10 +74,11 @@ export function slideList(container, load, { empty } = {}) {
         loading = true;
         fill(sentinel, h('div', { class: 'spinner' }));
         try {
-            const posts = await load(before);
+            const posts = await load(before, count);
             if (!list.isConnected) return;
             if (posts.length < PAGE) done = true;
             if (posts.length) before = posts[posts.length - 1].created_at;
+            count += posts.length;
             for (const p of posts) {
                 const slide = renderSlide(p, { onRemoved: remove });
                 slide.dataset.user = p.user.id;
@@ -163,10 +166,13 @@ export function renderFeed(view) {
         );
         if (current) current.destroy();
         clear(body);
-        const tag = category === 'all' ? null : category;
-        current = slideList(body, (before) => app.backend.feed({ scope, before, limit: PAGE, tag }), {
+        const popular = category === 'popular';
+        const tag = category === 'all' || popular ? null : category;
+        current = slideList(body, (before, offset) => app.backend.feed({ scope, sort: popular ? 'popular' : 'new', before, offset, limit: PAGE, tag }), {
             empty: () =>
-                tag
+                popular
+                    ? emptyState('flame', 'Nothing trending yet', 'Posts with the most likes and comments this month show up here. Go like some!', h('a', { class: 'btn primary', href: '#/home', text: 'See all posts', onclick: () => ((category = lastCategory = 'all'), draw()) }))
+                    : tag
                     ? emptyState('hash', `No #${tag} posts yet`, 'Add the tag to a post and it shows up here.', h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))
                     : scope === 'following'
                     ? emptyState('user', 'Your Following feed is empty', 'Follow some furs and their posts land here.', h('a', { class: 'btn primary', href: '#/explore', text: 'Find people' }))

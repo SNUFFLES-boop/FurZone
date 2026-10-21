@@ -77,6 +77,23 @@ export function hueOf(name) {
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
+/** "4K", "Full HD", "HD" or "" for a picture or video size. */
+export function qualityLabel(w, h) {
+    const side = Math.min(Number(w) || 0, Number(h) || 0);
+    if (side >= 2160) return '4K';
+    if (side >= 1440) return '2K';
+    if (side >= 1080) return 'Full HD';
+    if (side >= 720) return 'HD';
+    return '';
+}
+
+/** 1.2 MB, 340 KB */
+export function fileSize(bytes) {
+    const b = Number(bytes) || 0;
+    if (b >= 1024 * 1024) return (b / 1024 / 1024).toFixed(1).replace(/\.0$/, '') + ' MB';
+    return Math.max(1, Math.round(b / 1024)) + ' KB';
+}
+
 export const MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_VIDEO_SECONDS = 180;
 
@@ -112,7 +129,10 @@ export async function prepareImage(file, maxSide = 2048, quality = 0.88) {
     const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, quality));
     if (!blob) throw new Error("Couldn't prepare that picture.");
-    return new File([blob], 'image.' + (type === 'image/png' ? 'png' : 'jpg'), { type });
+    const out = new File([blob], 'image.' + (type === 'image/png' ? 'png' : 'jpg'), { type });
+    out.width = w;
+    out.height = h;
+    return out;
 }
 
 /** Checks a video's size and length before uploading it. */

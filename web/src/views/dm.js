@@ -3,7 +3,7 @@ import { h, icon, avatar, fill, errorText, spinner, toast, sheet, confirmDialog,
 import { app } from '../state.js';
 import { roleBadge } from '../staff.js';
 import { reportUser } from './profile.js';
-import { openExternal } from '../platform.js';
+import { chatText } from './chattext.js';
 
 const POLL_MS = 15000;
 
@@ -18,20 +18,6 @@ function dayLabel(iso) {
     return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function linkify(text) {
-    const out = [];
-    const re = /https:\/\/[^\s<>"]+/g;
-    let last = 0;
-    let m;
-    while ((m = re.exec(text))) {
-        if (m.index > last) out.push(text.slice(last, m.index));
-        const url = m[0].replace(/[.,!?)]+$/, '');
-        out.push(h('a', { class: 'chat-link', href: url, rel: 'noopener noreferrer nofollow', text: url, onclick: (e) => (e.preventDefault(), openExternal(url)) }));
-        last = m.index + url.length;
-    }
-    if (last < text.length) out.push(text.slice(last));
-    return out;
-}
 
 export function renderDm(view, ctx, username) {
     let alive = true;
@@ -205,7 +191,7 @@ export function renderDm(view, ctx, username) {
                 h(
                     'div',
                     { class: 'bubble-row' + (mine ? ' mine' : '') + (grouped ? ' grouped' : '') + (m.pending ? ' pending' : '') },
-                    h('div', { class: 'bubble', title: new Date(m.created_at).toLocaleString() }, h('p', null, linkify(m.body)), h('time', { text: clock(m.created_at) })),
+                    h('div', { class: 'bubble', title: new Date(m.created_at).toLocaleString() }, h('p', null, chatText(m.body)), h('time', { text: clock(m.created_at) })),
                     m.id === seenId && h('span', { class: 'seen' }, icon('check'), 'Seen')
                 )
             );

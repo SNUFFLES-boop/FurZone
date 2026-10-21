@@ -658,3 +658,22 @@ test('followers lists are private, you can remove a follower, and insights are o
     const [{ my_insights: other }] = await as('nosy', 'select my_insights()');
     assert.equal(other.hearts, 0, 'only your own numbers');
 });
+
+test('home feed: newest, popular with trending ranks, views; likers list skips blocked people', async () => {
+    for (const n of ['hf_a', 'hf_b', 'hf_c']) if (!users[n]) await signUp(n);
+    const [quiet] = await as('hf_a', `insert into posts (caption) values ('quiet one') returning id`);
+    const [loved] = await as('hf_a', `insert into posts (caption) values ('loved one') returning id`);
+    await as('hf_b', 'insert into boops (post_id) values ($1)', [loved.id]);
+    await as('hf_c', 'insert into boops (post_id) values ($1)', [loved.id]);
+    const newest = await as('hf_b', `select id, views_count, trend_rank from home_feed('all', 'new', null, 0, 30, null)`);
+    assert.ok(newest.some((r) => r.id === quiet.id), 'newest has everything');
+    const popular = await as('hf_b', `select id, trend_rank from home_feed('all', 'popular', null, 0, 30, null)`);
+    assert.ok(popular.some((r) => r.id === loved.id), 'popular has the hearted post');
+    assert.ok(!popular.some((r) => r.id === quiet.id), 'popular skips posts nobody reacted to');
+    assert.ok(popular.every((r, i) => i === 0 || r.trend_rank > popular[i - 1].trend_rank), 'ordered by rank');
+    let likers = await as('hf_a', 'select username from post_likers($1, 10)', [loved.id]);
+    assert.deepEqual(likers.map((l) => l.username).sort(), ['hf_b', 'hf_c']);
+    await as('hf_a', 'insert into blocks (blocked_id) values ($1)', [users.hf_c]);
+    likers = await as('hf_a', 'select username from post_likers($1, 10)', [loved.id]);
+    assert.deepEqual(likers.map((l) => l.username), ['hf_b']);
+});

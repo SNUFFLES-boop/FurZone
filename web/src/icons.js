@@ -1,7 +1,7 @@
 // Line icons (24×24, drawn with the current text colour). Icons in FILLED are solid shapes.
 // Discord and VRChat use their official logos (from the simple-icons package, sourced from discord.com/branding
 // and hello.vrchat.com/press), only to show that an account is connected to those services.
-import { siDiscord, siVrchat } from 'simple-icons';
+import { siDiscord, siVrchat, siX, siInstagram, siFacebook, siReddit, siBluesky, siTelegram, siWhatsapp, siTumblr, siMessenger, siThreads } from 'simple-icons';
 
 const PATHS = {
     paw:
@@ -46,6 +46,16 @@ const PATHS = {
     palette:
         'M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H15a2 2 0 0 0-1.4 3.4A1.3 1.3 0 0 1 12 21zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01M17 11h.01',
     discord: siDiscord.path,
+    x: siX.path,
+    instagram: siInstagram.path,
+    facebook: siFacebook.path,
+    reddit: siReddit.path,
+    bluesky: siBluesky.path,
+    telegram: siTelegram.path,
+    whatsapp: siWhatsapp.path,
+    tumblr: siTumblr.path,
+    messenger: siMessenger.path,
+    threads: siThreads.path,
     vrchat: siVrchat.path,
     flame: 'M12 22c-4 0-7-2.9-7-6.8 0-3.1 2-5.2 3.6-7 .5 1.9 1.6 3 2.9 3.4C11 7.8 12.3 4.6 15 2c.4 3.2 1.8 5.1 3.2 7 1.1 1.5 1.8 3.4 1.8 5.4C20 18.9 16.5 22 12 22z',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
@@ -57,6 +67,9 @@ const PATHS = {
     megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
     filter: 'M3 5h18M6 12h12M10 19h4',
     expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+    heartLine: 'M12 20.3s-7-4.3-9-8.7C1.6 8.3 3.6 5 6.8 5c2 0 3.5 1.1 5.2 3 1.7-1.9 3.2-3 5.2-3 3.2 0 5.2 3.3 3.8 6.6-2 4.4-9 8.7-9 8.7z',
+    info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5h.01',
+    trophy: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3',
     shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
     rotate: 'M4.5 9A8 8 0 0 1 18.4 6.6M19 3v4h-4M19.5 15a8 8 0 0 1-13.9 2.4M5 21v-4h4',
     play: 'M7 4.6v14.8a1 1 0 0 0 1.5.9l12-7.4a1 1 0 0 0 0-1.8l-12-7.4A1 1 0 0 0 7 4.6z',
@@ -73,7 +86,7 @@ const PATHS = {
 /** The raw shape of an icon (used to draw the animated background). */
 export const iconPath = (name) => PATHS[name];
 
-const FILLED = new Set(['paw', 'discord', 'vrchat', 'heart', 'play', 'pause', 'rewind', 'forward']);
+const FILLED = new Set(['paw', 'discord', 'vrchat', 'heart', 'play', 'pause', 'rewind', 'forward', 'x', 'instagram', 'facebook', 'reddit', 'bluesky', 'telegram', 'whatsapp', 'tumblr', 'messenger', 'threads']);
 const NS = 'http://www.w3.org/2000/svg';
 
 export function icon(name, cls) {

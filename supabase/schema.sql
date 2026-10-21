@@ -1381,6 +1381,68 @@ $$;
 revoke all on function public.explore(text, text, text, int, int) from public, anon;
 grant execute on function public.explore(text, text, text, int, int) to authenticated;
 
+-- ---------------------------------------------------------------- the home feed (newest or popular)
+
+-- Like feed(), plus views, a "trending" rank (top 10 of the last 30 days) and a Popular sort that pages by
+-- offset. p_scope: 'all' or 'following'. p_sort: 'new' or 'popular'.
+create or replace function public.home_feed(p_scope text default 'all', p_sort text default 'new',
+                                            p_before timestamptz default null, p_offset int default 0,
+                                            p_limit int default 10, p_tag text default null)
+returns table (
+  id uuid, user_id uuid, username text, display_name text, avatar_path text, species text, pronouns text,
+  caption text, credit text, tags text[], media_path text, media_type text,
+  boops_count int, comments_count int, views_count int, created_at timestamptz, booped boolean, following boolean,
+  connections text[], trend_rank int
+)
+language sql stable security invoker set search_path = public as $$
+  with hot as (
+    select p.id,
+           row_number() over (order by (p.boops_count * 3 + p.comments_count * 4 + p.views_count)::float8
+                                       / power(extract(epoch from now() - p.created_at) / 3600 + 2, 1.3) desc,
+                                       p.created_at desc)::int as rnk
+      from posts p
+     where not p.hidden and not public.is_banned(p.user_id) and p.created_at > now() - interval '30 days'
+       and p.boops_count + p.comments_count > 0
+  )
+  select p.id, p.user_id, pr.username, pr.display_name, pr.avatar_path, pr.species, pr.pronouns,
+         p.caption, p.credit, p.tags, p.media_path, p.media_type,
+         p.boops_count, p.comments_count, p.views_count, p.created_at,
+         exists (select 1 from boops b where b.post_id = p.id and b.user_id = auth.uid()),
+         exists (select 1 from follows f where f.follower_id = auth.uid() and f.followee_id = p.user_id),
+         array(select c.provider from connections c where c.user_id = p.user_id order by c.provider),
+         case when h.rnk <= 10 then h.rnk end
+    from posts p join profiles pr on pr.id = p.user_id left join hot h on h.id = p.id
+   where not p.hidden and not public.is_banned(p.user_id)
+     and (p_sort = 'popular' or p_before is null or p.created_at < p_before)
+     and (p_sort <> 'popular' or h.rnk is not null)
+     and (p_tag is null or p.tags @> array[lower(p_tag)])
+     and (p_scope <> 'following' or p.user_id = auth.uid()
+          or p.user_id in (select followee_id from follows where follower_id = auth.uid()))
+   order by case when p_sort = 'popular' then h.rnk end asc nulls last, p.created_at desc
+   limit least(greatest(p_limit, 1), 30)
+   offset case when p_sort = 'popular' then greatest(p_offset, 0) else 0 end
+$$;
+revoke all on function public.home_feed(text, text, timestamptz, int, int, text) from public, anon;
+grant execute on function public.home_feed(text, text, timestamptz, int, int, text) to authenticated;
+
+-- Who hearted a post (people you follow first, then the newest). Only for posts you can see; never anyone
+-- blocked either way or banned.
+create or replace function public.post_likers(p_post uuid, p_limit int default 50)
+returns table (id uuid, username text, display_name text, avatar_path text, species text, pronouns text,
+               liked_at timestamptz)
+language sql stable security invoker set search_path = public as $$
+  select pr.id, pr.username, pr.display_name, pr.avatar_path, pr.species, pr.pronouns, b.created_at
+    from boops b join profiles pr on pr.id = b.user_id
+   where b.post_id = p_post
+     and exists (select 1 from posts p where p.id = p_post)
+     and not public.is_blocked(auth.uid(), b.user_id) and not public.is_banned(b.user_id)
+   order by exists (select 1 from follows f where f.follower_id = auth.uid() and f.followee_id = b.user_id) desc,
+            b.created_at desc
+   limit least(greatest(p_limit, 1), 200)
+$$;
+revoke all on function public.post_likers(uuid, int) from public, anon;
+grant execute on function public.post_likers(uuid, int) to authenticated;
+
 -- ---------------------------------------------------------------- your own stats (profile -> Insights)
 
 -- Only ever about the person asking. Totals, this week's new followers and hearts, and the people who heart and

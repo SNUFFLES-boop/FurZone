@@ -66,7 +66,8 @@ export function normalizePost(row, mediaUrl) {
         views: Number(row.views_count) || 0,
         created_at: row.created_at,
         booped: !!row.booped,
-        following: !!row.following
+        following: !!row.following,
+        trend: Number(row.trend_rank) || null
     };
 }
 
