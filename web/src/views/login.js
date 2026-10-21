@@ -164,6 +164,23 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         icon('discord'),
         'Continue with Discord'
     );
+    const passkeyBtn = h(
+        'button',
+        {
+            type: 'button',
+            class: 'btn ghost block lg passkey-btn',
+            onclick: () =>
+                withBusy(passkeyBtn, async () => {
+                    try {
+                        await app.backend.auth.signInWithPasskey();
+                    } catch (err) {
+                        if (err && err.code !== 'cancelled' && err.message !== 'passkey_cancelled') toast(errorText(err), 'error', 6000);
+                    }
+                })
+        },
+        icon('key'),
+        'Log in with a passkey'
+    );
 
     const startDemo = async () => {
         sessionStorage.setItem('furzone.demo', '1');
@@ -184,6 +201,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         form,
         h('div', { class: 'or' }, h('span', { text: 'or' })),
         discord,
+        passkeyBtn,
         h('p', { class: 'fine', text: 'FurZone is for ages 13+ and safe-for-work posts only. Be kind — reports from the community hide rule-breaking posts.' })
     );
 
@@ -207,6 +225,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         tabs.hidden = true;
         form.hidden = true;
         discord.hidden = true;
+        passkeyBtn.hidden = true;
         card.querySelector('.or').hidden = true;
     }
     setMode('signup');

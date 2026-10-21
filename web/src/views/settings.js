@@ -69,7 +69,8 @@ export function renderSettings(view) {
             group(
                 'Account',
                 item('edit', 'Edit profile', () => editProfile(app.me, () => {})),
-                item('lock', 'Change password', changePassword)
+                item('lock', 'Change password', changePassword),
+                item('key', 'Passkeys', passkeySheet)
             ),
             group(
                 'Privacy',
@@ -176,6 +177,72 @@ export function renderSettings(view) {
         );
     }
     draw();
+}
+
+/** Passkeys: log in with your fingerprint, face or screen lock (Samsung Pass, Google Password Manager...). */
+function passkeySheet() {
+    sheet('Passkeys', (body) => {
+        const list = h('div', { class: 'passkey-list' }, spinner());
+        const add = h('button', { class: 'btn primary block', type: 'button' }, icon('key'), 'Add a passkey');
+        async function load() {
+            try {
+                const keys = await app.backend.auth.listPasskeys();
+                fill(
+                    list,
+                    keys.length
+                        ? keys.map((k) =>
+                              h(
+                                  'div',
+                                  { class: 'person passkey-row' },
+                                  h('span', { class: 'passkey-icon' }, icon('key')),
+                                  h(
+                                      'span',
+                                      { class: 'name-line grow' },
+                                      h('strong', { text: k.friendly_name || 'Passkey' }),
+                                      h('span', { class: 'name-sub', text: `Added ${new Date(k.created_at).toLocaleDateString()}${k.last_used_at ? ' · used ' + new Date(k.last_used_at).toLocaleDateString() : ''}` })
+                                  ),
+                                  h('button', {
+                                      class: 'chip-btn',
+                                      type: 'button',
+                                      text: 'Remove',
+                                      onclick: async (e) => {
+                                          if (!(await confirmDialog('Remove this passkey?', "You won't be able to log in with it anymore. Also delete it in your passkey app (like Samsung Pass) to tidy up.", { ok: 'Remove', danger: true }))) return;
+                                          try {
+                                              await app.backend.auth.deletePasskey(k.id);
+                                              toast('Passkey removed', 'success');
+                                              load();
+                                          } catch (err) {
+                                              toast(errorText(err), 'error');
+                                          }
+                                      }
+                                  })
+                              )
+                          )
+                        : h('p', { class: 'muted', text: 'No passkeys yet.' })
+                );
+            } catch (e) {
+                fill(list, h('p', { class: 'form-error', text: errorText(e) }));
+            }
+        }
+        add.onclick = () =>
+            withBusy(add, async () => {
+                try {
+                    await app.backend.auth.addPasskey();
+                    toast('Passkey added! Next time, tap "Log in with a passkey".', 'success', 5000);
+                    load();
+                } catch (e) {
+                    if (e && (e.code === 'cancelled' || e.message === 'passkey_cancelled')) return;
+                    toast(errorText(e), 'error', 6000);
+                }
+            });
+        body.append(
+            h('p', { class: 'muted', text: 'Log in with your fingerprint, face or screen lock instead of a password. Your passkey app keeps it: Samsung Pass, Google Password Manager, or another one you use.' }),
+            list,
+            add,
+            h('p', { class: 'fine muted', text: 'Passkeys can’t be stolen or guessed like passwords, and they only work in FurZone.' })
+        );
+        load();
+    });
 }
 
 function changePassword() {

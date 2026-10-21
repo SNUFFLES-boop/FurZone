@@ -10,6 +10,7 @@ export const platform = android ? 'android' : webview2 ? 'windows' : 'web';
 let seq = 0;
 const pending = new Map();
 const progressListeners = new Set();
+let passkeyWaiter = null;
 
 function onNativeMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
@@ -18,6 +19,10 @@ function onNativeMessage(msg) {
         pending.delete(msg.id);
         if (msg.error) reject(new Error(msg.error));
         else resolve(msg.value);
+    } else if (msg.type === 'passkey') {
+        const fn = passkeyWaiter;
+        passkeyWaiter = null;
+        if (fn) fn({ state: msg.state || 'error', json: msg.json || '', message: msg.message || '' });
     } else if (msg.type === 'update') {
         for (const fn of progressListeners) fn(msg.state, msg.percent || 0, msg.message || '');
     }
@@ -90,6 +95,26 @@ export function shareNative(text, pkg = '') {
     } catch {
         return 'unsupported';
     }
+}
+
+/** True when the Android app can make and use passkeys itself (Android's passkey system). */
+export const nativePasskeys = !!(android && typeof android.passkey === 'function');
+
+/**
+ * Android: ask the phone's passkey app (Samsung Pass, Google Password Manager...) to make ('create') or use
+ * ('get') a passkey. Resolves { state: 'ok' | 'cancelled' | 'none' | 'unsupported' | 'error', json, message }.
+ */
+export function passkeyNative(kind, requestJson) {
+    if (!nativePasskeys) return Promise.resolve({ state: 'unsupported', json: '', message: '' });
+    return new Promise((resolve) => {
+        passkeyWaiter = resolve;
+        try {
+            android.passkey(kind, requestJson);
+        } catch (e) {
+            passkeyWaiter = null;
+            resolve({ state: 'error', json: '', message: String(e && e.message) });
+        }
+    });
 }
 
 export function onUpdateProgress(fn) {

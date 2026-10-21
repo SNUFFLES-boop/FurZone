@@ -5878,3 +5878,31 @@ html.player-open .scrim {
     user-select: none;
     -webkit-touch-callout: none;
 }
+
+/* Passkeys */
+.passkey-btn {
+    margin-top: 10px;
+    gap: 8px;
+}
+
+.passkey-list {
+    display: grid;
+    gap: 6px;
+    margin: 12px 0;
+}
+
+.passkey-icon {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--grad-soft);
+    color: #f9a8d4;
+}
+
+.passkey-icon .icon {
+    width: 20px;
+    height: 20px;
+}

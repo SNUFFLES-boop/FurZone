@@ -2,6 +2,7 @@
 // security lives in the database (supabase/schema.sql); this file only shapes requests and answers.
 import { createClient } from '@supabase/supabase-js';
 import { normalizePost, normalizeProfile, normalizeRestriction, mediaPath } from './shape.js';
+import { nativePasskeys, passkeyNative } from '../platform.js';
 
 const BUCKET = 'media';
 
@@ -66,6 +67,20 @@ export function createSupabaseBackend(url, anonKey) {
             p.flag = flags.get(p.id) || null;
         }
         return people;
+    }
+
+    function passkeyError(r) {
+        const e = new Error(
+            r.state === 'cancelled'
+                ? 'passkey_cancelled'
+                : r.state === 'none'
+                  ? "There's no FurZone passkey on this phone yet. Log in another way, then add one in Settings."
+                  : r.state === 'unsupported'
+                    ? r.message || "This phone can't use passkeys."
+                    : r.message || 'The passkey did not work.'
+        );
+        e.code = r.state;
+        return e;
     }
 
     async function invoke(name, body) {
@@ -170,6 +185,35 @@ export function createSupabaseBackend(url, anonKey) {
             },
             async changePassword(newPassword) {
                 await must(client.auth.updateUser({ password: newPassword }));
+            },
+            // ---- passkeys (Samsung Pass, Google Password Manager, Windows Hello...) ----
+            /** Makes a passkey for the logged-in account. */
+            async addPasskey() {
+                if (nativePasskeys) {
+                    const start = await must(client.auth.passkey.startRegistration());
+                    const r = await passkeyNative('create', JSON.stringify(start.options));
+                    if (r.state !== 'ok') throw passkeyError(r);
+                    await must(client.auth.passkey.verifyRegistration({ challengeId: start.challenge_id, credential: JSON.parse(r.json) }));
+                    return;
+                }
+                await must(client.auth.registerPasskey());
+            },
+            /** Logs in with a passkey (no email or password needed). */
+            async signInWithPasskey() {
+                if (nativePasskeys) {
+                    const start = await must(client.auth.passkey.startAuthentication());
+                    const r = await passkeyNative('get', JSON.stringify(start.options));
+                    if (r.state !== 'ok') throw passkeyError(r);
+                    await must(client.auth.passkey.verifyAuthentication({ challengeId: start.challenge_id, credential: JSON.parse(r.json) }));
+                    return;
+                }
+                await must(client.auth.signInWithPasskey());
+            },
+            async listPasskeys() {
+                return (await must(client.auth.passkey.list())) || [];
+            },
+            async deletePasskey(id) {
+                await must(client.auth.passkey.delete({ passkeyId: id }));
             },
             /** Where to send the person to log in with Discord (the app navigates there). */
             discordLoginUrl: (redirectTo) => oauthUrl('login', redirectTo),
