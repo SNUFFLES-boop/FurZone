@@ -61,6 +61,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const chat = []; // Lounge messages
     let chatSeq = 0;
     const dmListeners = new Set();
+    const passkeys = new Map(); // user id -> [{ id, friendly_name, created_at }]
+    let lastPasskeyUser = null;
     const loungeListeners = new Set();
     const news = [];
     const blobs = new Map();
@@ -385,6 +387,29 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             },
             async changePassword(newPassword) {
                 for (const acc of accounts.values()) if (acc.userId === me()) acc.password = newPassword;
+            },
+            // Passkeys: the demo pretends the phone's passkey app said yes.
+            async addPasskey() {
+                const a = me();
+                const list = passkeys.get(a) || [];
+                list.push({ id: id('pk'), friendly_name: 'This device', created_at: iso(now()) });
+                passkeys.set(a, list);
+                lastPasskeyUser = a;
+                return delay();
+            },
+            async signInWithPasskey() {
+                if (!lastPasskeyUser || !(passkeys.get(lastPasskeyUser) || []).length) {
+                    throw new Error("There's no FurZone passkey on this phone yet. Log in another way, then add one in Settings.");
+                }
+                session = { userId: lastPasskeyUser, email: null };
+                emit('SIGNED_IN');
+            },
+            async listPasskeys() {
+                return delay([...(passkeys.get(me()) || [])]);
+            },
+            async deletePasskey(pkId) {
+                const a = me();
+                passkeys.set(a, (passkeys.get(a) || []).filter((p) => p.id !== pkId));
             },
             // In the demo, "Discord" connects straight away (no real Discord involved).
             async discordLoginUrl() {

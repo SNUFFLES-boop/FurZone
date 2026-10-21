@@ -4,9 +4,19 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.credentials.CreateCredentialException;
+import android.credentials.CreateCredentialRequest;
+import android.credentials.CreateCredentialResponse;
+import android.credentials.CredentialManager;
+import android.credentials.CredentialOption;
+import android.credentials.GetCredentialException;
+import android.credentials.GetCredentialRequest;
+import android.credentials.GetCredentialResponse;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
+import android.os.OutcomeReceiver;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -206,6 +216,94 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---- passkeys, through Android's own passkey system (Credential Manager, Android 14+). Whatever passkey
+    // app the person uses answers: Google Password Manager, Samsung Pass, 1Password, Bitwarden...
+    private static final String PK_TYPE = "androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL";
+    private static final String PK = "androidx.credentials.";
+
+    private void sendPasskey(String state, String json, String message) {
+        sendToPage("{\"type\":\"passkey\",\"state\":" + json(state) + ",\"json\":" + json(json == null ? "" : json)
+                + ",\"message\":" + json(message == null ? "" : message) + "}");
+    }
+
+    private static String errorState(String type) {
+        String t = type == null ? "" : type;
+        if (t.contains("USER_CANCELED") || t.contains("INTERRUPTED")) return "cancelled";
+        if (t.contains("NO_CREDENTIAL")) return "none";
+        if (t.contains("NO_CREATE_OPTIONS")) return "unsupported";
+        return "error";
+    }
+
+    void passkey(final String kind, final String requestJson) {
+        if (Build.VERSION.SDK_INT < 34) {
+            sendPasskey("unsupported", null, "Passkeys need Android 14 or newer.");
+            return;
+        }
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    CredentialManager cm = getSystemService(CredentialManager.class);
+                    if (cm == null) {
+                        sendPasskey("unsupported", null, "This phone has no passkey support.");
+                        return;
+                    }
+                    if ("create".equals(kind)) {
+                        Bundle data = new Bundle();
+                        data.putString(PK + "BUNDLE_KEY_SUBTYPE", PK + "BUNDLE_VALUE_SUBTYPE_CREATE_PUBLIC_KEY_CREDENTIAL_REQUEST");
+                        data.putString(PK + "BUNDLE_KEY_REQUEST_JSON", requestJson);
+                        data.putBoolean(PK + "BUNDLE_KEY_PREFER_IMMEDIATELY_AVAILABLE_CREDENTIALS", false);
+                        Bundle display = new Bundle();
+                        try {
+                            org.json.JSONObject user = new org.json.JSONObject(requestJson).getJSONObject("user");
+                            display.putCharSequence(PK + "BUNDLE_KEY_USER_ID", user.optString("name", "FurZone"));
+                            display.putCharSequence(PK + "BUNDLE_KEY_USER_DISPLAY_NAME", user.optString("displayName", user.optString("name", "")));
+                        } catch (org.json.JSONException e) {
+                            display.putCharSequence(PK + "BUNDLE_KEY_USER_ID", "FurZone");
+                        }
+                        data.putBundle(PK + "BUNDLE_KEY_REQUEST_DISPLAY_INFO", display);
+                        CreateCredentialRequest req = new CreateCredentialRequest.Builder(PK_TYPE, data, new Bundle(data))
+                                .setIsSystemProviderRequired(false)
+                                .setAlwaysSendAppInfoToProvider(true)
+                                .build();
+                        cm.createCredential(MainActivity.this, req, new CancellationSignal(), getMainExecutor(),
+                                new OutcomeReceiver<CreateCredentialResponse, CreateCredentialException>() {
+                                    @Override
+                                    public void onResult(CreateCredentialResponse r) {
+                                        sendPasskey("ok", r.getData().getString(PK + "BUNDLE_KEY_REGISTRATION_RESPONSE_JSON"), null);
+                                    }
+
+                                    @Override
+                                    public void onError(CreateCredentialException e) {
+                                        sendPasskey(errorState(e.getType()), null, e.getMessage());
+                                    }
+                                });
+                    } else {
+                        Bundle data = new Bundle();
+                        data.putString(PK + "BUNDLE_KEY_SUBTYPE", PK + "BUNDLE_VALUE_SUBTYPE_GET_PUBLIC_KEY_CREDENTIAL_OPTION");
+                        data.putString(PK + "BUNDLE_KEY_REQUEST_JSON", requestJson);
+                        CredentialOption option = new CredentialOption.Builder(PK_TYPE, data, new Bundle(data)).build();
+                        GetCredentialRequest req = new GetCredentialRequest.Builder(new Bundle()).addCredentialOption(option).build();
+                        cm.getCredential(MainActivity.this, req, new CancellationSignal(), getMainExecutor(),
+                                new OutcomeReceiver<GetCredentialResponse, GetCredentialException>() {
+                                    @Override
+                                    public void onResult(GetCredentialResponse r) {
+                                        sendPasskey("ok", r.getCredential().getData().getString(PK + "BUNDLE_KEY_AUTHENTICATION_RESPONSE_JSON"), null);
+                                    }
+
+                                    @Override
+                                    public void onError(GetCredentialException e) {
+                                        sendPasskey(errorState(e.getType()), null, e.getMessage());
+                                    }
+                                });
+                    }
+                } catch (RuntimeException e) {
+                    sendPasskey("error", null, e.getMessage());
+                }
+            }
+        });
+    }
+
     void sendToPage(final String json) {
         runOnUiThread(new Runnable() {
             @Override
@@ -402,6 +500,13 @@ public class MainActivity extends Activity {
                 Thread.currentThread().interrupt();
             }
             return result[0];
+        }
+
+        @JavascriptInterface
+        public void passkey(String kind, String requestJson) {
+            if (fromApp()) {
+                MainActivity.this.passkey(kind, requestJson);
+            }
         }
 
         @JavascriptInterface

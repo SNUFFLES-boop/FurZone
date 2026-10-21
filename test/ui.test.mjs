@@ -613,6 +613,23 @@ await test('settings, then log out back to the login screen', async () => {
     await page.locator('.slide').first().waitFor();
 });
 
+await test('passkeys: add one in Settings, log out, log in with it', async () => {
+    await page.locator('.tabbar .nav-me').click();
+    await page.locator('.profile-actions a[href="#/settings"]').click();
+    await page.locator('.settings-item', { hasText: 'Passkeys' }).click();
+    await text('No passkeys yet.');
+    await page.getByRole('button', { name: 'Add a passkey' }).click();
+    await toastSays('Passkey added');
+    await page.locator('.passkey-row').waitFor();
+    await shot('12c-passkeys');
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.waitForFunction(() => !document.querySelector('.scrim'));
+    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.locator('.auth-form').waitFor();
+    await page.getByRole('button', { name: 'Log in with a passkey' }).click();
+    await page.locator('.tabbar').waitFor();
+});
+
 await test('desktop layout: side menu instead of the tab bar', async () => {
     await page.setViewportSize({ width: 1280, height: 820 });
     await page.locator('.rail-nav').waitFor();

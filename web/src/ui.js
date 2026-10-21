@@ -282,6 +282,9 @@ export function errorText(error) {
     if (/Failed to fetch|NetworkError|network/i.test(msg)) return "Can't reach the server. Check your connection.";
     if (/JWT|session.*(expired|missing)|not logged in/i.test(msg)) return 'Your session ended. Log in again.';
     if (/User is banned/i.test(msg)) return 'This account is banned.';
+    if (/passkey.*(disabled|not enabled)|webauthn.*(disabled|not enabled)|passkeys? (are|is) not/i.test(msg)) return "Passkeys aren't switched on yet.";
+    if (/too_many_passkeys/i.test(msg)) return 'You have the most passkeys allowed. Remove one first.';
+    if (/webauthn_challenge_expired|challenge.*expired/i.test(msg)) return 'That took too long. Try again.';
     if (/Database error saving new user/i.test(msg)) return "Couldn't create the account. Try another username.";
     return msg.length && msg.length < 160 ? msg : 'Something went wrong. Try again.';
 }
