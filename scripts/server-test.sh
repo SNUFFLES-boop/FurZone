@@ -66,6 +66,8 @@ server-port = 3999
 CONF
 "$PGRST" "$WORK/pgrst.conf" > "$WORK/pgrst.log" 2>&1 &
 PGRST_PID=$!
-for _ in $(seq 1 60); do curl -s -o /dev/null "$PGRST_URL/" && break; sleep 0.5; done
-curl -s -o /dev/null "$PGRST_URL/" || { echo "PostgREST didn't start"; exit 1; }
+# Wait until it's ready: it answers 503 while it's still loading the schema.
+ready() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$PGRST_URL/")" = 200 ]; }
+for _ in $(seq 1 60); do ready && break; sleep 0.5; done
+ready || { echo "PostgREST didn't start"; exit 1; }
 node test/server.test.mjs
