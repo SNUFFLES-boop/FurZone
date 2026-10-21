@@ -33,13 +33,13 @@ export default defineConfig(({ mode }) => {
         base: './',
         envDir: '..',
         define: {
-            __APP_VERSION__: JSON.stringify(process.env.PAWST_VERSION || '1.0.0')
+            __APP_VERSION__: JSON.stringify(process.env.FURZONE_VERSION || '1.0.0')
         },
         build: { outDir: '../dist/web', emptyOutDir: true, sourcemap: false, target: 'es2020', assetsInlineLimit: 0 },
         plugins: [
             {
-                name: 'pawst-csp',
-                transformIndexHtml: (html) => html.replace('%PAWST_CSP%', csp(env))
+                name: 'furzone-csp',
+                transformIndexHtml: (html) => html.replace('%FURZONE_CSP%', csp(env))
             }
         ]
     };

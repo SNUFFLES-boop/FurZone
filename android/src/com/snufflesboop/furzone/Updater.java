@@ -1,4 +1,4 @@
-package com.snufflesboop.pawst;
+package com.snufflesboop.furzone;
 
 import android.app.Activity;
 import android.app.PendingIntent;
@@ -21,7 +21,7 @@ final class Updater {
         void onState(String state, int percent, String message);
     }
 
-    private static final String ACTION = "com.snufflesboop.pawst.INSTALL_RESULT";
+    private static final String ACTION = "com.snufflesboop.furzone.INSTALL_RESULT";
 
     private final Activity activity;
     private final Listener listener;
@@ -38,7 +38,7 @@ final class Updater {
             return;
         }
         if (Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager().canRequestPackageInstalls()) {
-            listener.onState("error", 0, "Allow Pawst to install updates, then tap Update again.");
+            listener.onState("error", 0, "Allow FurZone to install updates, then tap Update again.");
             activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:" + activity.getPackageName())));
             return;
@@ -53,7 +53,7 @@ final class Updater {
                     busy = false;
                 }
             }
-        }, "pawst-update").start();
+        }, "furzone-update").start();
     }
 
     private void run(String url, String sha256, long size) {
@@ -69,7 +69,7 @@ final class Updater {
             sessionId = installer.createSession(params);
             try (PackageInstaller.Session session = installer.openSession(sessionId)) {
                 final int[] last = {-1};
-                try (InputStream in = VerifiedDownload.open(url, VerifiedDownload.releasesPrefix(BuildConfig.GITHUB_REPO), "Pawst-Android/" + BuildConfig.VERSION_NAME);
+                try (InputStream in = VerifiedDownload.open(url, VerifiedDownload.releasesPrefix(BuildConfig.GITHUB_REPO), "FurZone-Android/" + BuildConfig.VERSION_NAME);
                      OutputStream out = session.openWrite("update.apk", 0, size)) {
                     VerifiedDownload.copyVerified(in, out, sha256, size, new VerifiedDownload.Progress() {
                         @Override

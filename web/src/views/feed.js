@@ -107,7 +107,7 @@ export function renderFeed(view) {
 
     function draw() {
         head.replaceChildren(
-            h('span', { class: 'feed-brand', text: 'Pawst' }),
+            h('span', { class: 'feed-brand', text: 'FurZone' }),
             segmented(
                 [
                     ['all', 'For you'],
@@ -134,8 +134,8 @@ export function renderFeed(view) {
 
     view.append(h('div', { class: 'feed' }, head, body));
     draw();
-    if (app.backend.kind === 'demo' && !sessionStorage.getItem('pawst.demo.hinted')) {
-        sessionStorage.setItem('pawst.demo.hinted', '1');
+    if (app.backend.kind === 'demo' && !sessionStorage.getItem('furzone.demo.hinted')) {
+        sessionStorage.setItem('furzone.demo.hinted', '1');
         setTimeout(() => toast('Tip: double-tap a post to boop it 🐾', 'info', 4500), 900);
     }
     return () => current && current.destroy();

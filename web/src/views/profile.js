@@ -15,7 +15,7 @@ export function renderProfile(view, ctx, username) {
             const p = username === app.me.username ? await refreshMe() : await app.backend.profileByUsername(username);
             if (!alive) return;
             if (!p) {
-                page.replaceChildren(emptyState('user', 'No one here', `There's no @${username} on Pawst.`));
+                page.replaceChildren(emptyState('user', 'No one here', `There's no @${username} on FurZone.`));
                 return;
             }
             draw(p);

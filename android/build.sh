@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# Builds build/Pawst.apk without Gradle, from the web app in ../dist/web (run `npm run build` first).
+# Builds build/FurZone.apk without Gradle, from the web app in ../dist/web (run `npm run build` first).
 #
 # Needs a JDK (17+) and, from the Android SDK: aapt2, d8 (or dx), zipalign, apksigner and a platform
 # android.jar. They're found in $ANDROID_HOME / $ANDROID_SDK_ROOT / /usr/lib/android-sdk or on PATH;
 # override any of them with AAPT2, D8, DX, ZIPALIGN, APKSIGNER or ANDROID_JAR.
 #
-# Signing: KEYSTORE (default signing/pawst.jks), KEYSTORE_PASSWORD and KEY_ALIAS (default pawst).
+# Signing: KEYSTORE (default signing/furzone.jks), KEYSTORE_PASSWORD and KEY_ALIAS (default furzone).
 # Every update must be signed with the same key, or Android refuses to install it over the old app.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 VERSION_CODE="${VERSION_CODE:-1}"
 VERSION_NAME="${VERSION_NAME:-1.0.$VERSION_CODE}"
-GITHUB_REPO="${GITHUB_REPO:-SNUFFLES-boop/Pawst}"
+GITHUB_REPO="${GITHUB_REPO:-SNUFFLES-boop/FurZone}"
 case "$GITHUB_REPO" in
     *[!A-Za-z0-9._/-]* | */*/* | /* | */) echo "GITHUB_REPO must look like owner/repo" >&2; exit 1 ;;
 esac
 MIN_SDK=26
 TARGET_SDK=35
-PACKAGE_DIR=com/snufflesboop/pawst
-KEYSTORE="${KEYSTORE:-signing/pawst.jks}"
-KEY_ALIAS="${KEY_ALIAS:-pawst}"
+PACKAGE_DIR=com/snufflesboop/furzone
+KEYSTORE="${KEYSTORE:-signing/furzone.jks}"
+KEY_ALIAS="${KEY_ALIAS:-furzone}"
 if [ -z "${KEYSTORE_PASSWORD:-}" ] && [ -f signing/password.txt ]; then
     KEYSTORE_PASSWORD="$(tr -d '\r\n' < signing/password.txt)"
 fi
 : "${KEYSTORE_PASSWORD:?set KEYSTORE_PASSWORD (or put it in signing/password.txt)}"
 OUT=build
-APK="$OUT/Pawst.apk"
+APK="$OUT/FurZone.apk"
 WEB=../dist/web
 
 if [ ! -f "$WEB/index.html" ]; then
@@ -87,7 +87,7 @@ mkdir -p "$OUT/gen/$PACKAGE_DIR" "$OUT/classes" "$OUT/dex" "$OUT/assets/www"
 cp -R "$WEB/." "$OUT/assets/www/"
 
 cat > "$OUT/gen/$PACKAGE_DIR/BuildConfig.java" <<JAVA
-package com.snufflesboop.pawst;
+package com.snufflesboop.furzone;
 
 public final class BuildConfig {
     public static final String VERSION_NAME = "$VERSION_NAME";

@@ -8,7 +8,7 @@ const BUCKET = 'media';
 export function createSupabaseBackend(url, anonKey) {
     const client = createClient(url, anonKey, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: 'pkce' },
-        global: { headers: { 'x-client-info': 'pawst-app' } }
+        global: { headers: { 'x-client-info': 'furzone-app' } }
     });
 
     const mediaUrl = (path) => (path ? client.storage.from(BUCKET).getPublicUrl(path).data.publicUrl : '');

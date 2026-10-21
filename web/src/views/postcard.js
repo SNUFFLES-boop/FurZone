@@ -212,7 +212,7 @@ export function renderSlide(post, { onRemoved } = {}) {
 }
 
 async function share(post) {
-    const text = `@${post.user.username} on Pawst${post.caption ? ': ' + post.caption.slice(0, 200) : ''}`;
+    const text = `@${post.user.username} on FurZone${post.caption ? ': ' + post.caption.slice(0, 200) : ''}`;
     try {
         if (navigator.share) await navigator.share({ text });
         else {

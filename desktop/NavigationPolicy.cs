@@ -1,9 +1,9 @@
-namespace Pawst;
+namespace FurZone;
 
 /// <summary>Which pages may load inside the app window; everything else opens in the normal browser.</summary>
 public static class NavigationPolicy
 {
-    public const string AppHost = "app.pawst.local";
+    public const string AppHost = "app.furzone.local";
     public const string StartUrl = "https://" + AppHost + "/index.html";
 
     public static bool IsApp(Uri? uri) =>

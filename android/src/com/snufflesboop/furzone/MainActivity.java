@@ -1,4 +1,4 @@
-package com.snufflesboop.pawst;
+package com.snufflesboop.furzone;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
@@ -22,7 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Pawst on Android: the app's web code, served from inside the APK at https://appassets.androidplatform.net,
+ * FurZone on Android: the app's web code, served from inside the APK at https://appassets.androidplatform.net,
  * in a locked-down WebView. Only the app itself, Discord's login and our Supabase project may load in it;
  * every other link opens in the phone's browser.
  */
@@ -59,7 +59,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setSafeBrowsingEnabled(true);
-        s.setUserAgentString(s.getUserAgentString() + " PawstAndroid/" + BuildConfig.VERSION_NAME);
+        s.setUserAgentString(s.getUserAgentString() + " FurZoneAndroid/" + BuildConfig.VERSION_NAME);
 
         updater = new Updater(this, new Updater.Listener() {
             @Override
@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
                         + ",\"message\":" + json(message) + "}");
             }
         });
-        webView.addJavascriptInterface(new Bridge(), "PawstAndroid");
+        webView.addJavascriptInterface(new Bridge(), "FurZoneAndroid");
         webView.setWebViewClient(new Client());
         webView.setWebChromeClient(new Chrome());
 
@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        webView.evaluateJavascript("window.pawstBack ? window.pawstBack() : false", new ValueCallback<String>() {
+        webView.evaluateJavascript("window.furzoneBack ? window.furzoneBack() : false", new ValueCallback<String>() {
             @Override
             public void onReceiveValue(String value) {
                 if (!"true".equals(value)) {
@@ -131,7 +131,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 if (APP_HOST.equals(currentHost)) {
-                    webView.evaluateJavascript("window.__pawstNative && window.__pawstNative(" + json(json) + ")", null);
+                    webView.evaluateJavascript("window.__furzoneNative && window.__furzoneNative(" + json(json) + ")", null);
                 }
             }
         });

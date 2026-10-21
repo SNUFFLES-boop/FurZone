@@ -1,4 +1,4 @@
-import com.snufflesboop.pawst.VerifiedDownload;
+import com.snufflesboop.furzone.VerifiedDownload;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -46,14 +46,14 @@ public class VerifiedDownloadTest {
     }
 
     public static void main(String[] args) throws Exception {
-        String prefix = VerifiedDownload.releasesPrefix("SNUFFLES-boop/Pawst");
-        check(prefix.equals("https://github.com/SNUFFLES-boop/Pawst/releases/download/"), "prefix");
-        check(VerifiedDownload.allowedUrl(prefix + "v1.0.42/Pawst.apk", prefix), "release asset allowed");
-        check(!VerifiedDownload.allowedUrl("https://github.com/evil/Pawst/releases/download/v1/Pawst.apk", prefix), "other owner");
-        check(!VerifiedDownload.allowedUrl("https://github.com.evil.com/SNUFFLES-boop/Pawst/releases/download/v1/Pawst.apk", prefix), "lookalike host");
+        String prefix = VerifiedDownload.releasesPrefix("SNUFFLES-boop/FurZone");
+        check(prefix.equals("https://github.com/SNUFFLES-boop/FurZone/releases/download/"), "prefix");
+        check(VerifiedDownload.allowedUrl(prefix + "v1.0.42/FurZone.apk", prefix), "release asset allowed");
+        check(!VerifiedDownload.allowedUrl("https://github.com/evil/FurZone/releases/download/v1/FurZone.apk", prefix), "other owner");
+        check(!VerifiedDownload.allowedUrl("https://github.com.evil.com/SNUFFLES-boop/FurZone/releases/download/v1/FurZone.apk", prefix), "lookalike host");
         check(!VerifiedDownload.allowedUrl(prefix + "../../evil/x.apk", prefix), "path climbing");
-        check(!VerifiedDownload.allowedUrl(prefix + "v1/Pawst.apk?x=1", prefix), "query");
-        check(!VerifiedDownload.allowedUrl("http://github.com/SNUFFLES-boop/Pawst/releases/download/v1/Pawst.apk", prefix), "plain http");
+        check(!VerifiedDownload.allowedUrl(prefix + "v1/FurZone.apk?x=1", prefix), "query");
+        check(!VerifiedDownload.allowedUrl("http://github.com/SNUFFLES-boop/FurZone/releases/download/v1/FurZone.apk", prefix), "plain http");
         check(!VerifiedDownload.allowedUrl(null, prefix), "null");
 
         byte[] apk = "PK pretend apk bytes".getBytes("UTF-8");

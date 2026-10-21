@@ -166,7 +166,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
     );
 
     const startDemo = async () => {
-        sessionStorage.setItem('pawst.demo', '1');
+        sessionStorage.setItem('furzone.demo', '1');
         await useBackend(createDemoBackend());
     };
 
@@ -184,7 +184,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         form,
         h('div', { class: 'or' }, h('span', { text: 'or' })),
         discord,
-        h('p', { class: 'fine', text: 'Pawst is for ages 13+ and safe-for-work posts only. Be kind — reports from the community hide rule-breaking posts.' })
+        h('p', { class: 'fine', text: 'FurZone is for ages 13+ and safe-for-work posts only. Be kind — reports from the community hide rule-breaking posts.' })
     );
 
     root.append(
@@ -195,7 +195,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
             h(
                 'div',
                 { class: 'auth-inner' },
-                h('header', { class: 'auth-hero' }, logo(84), h('h1', { text: 'Pawst' }), h('p', { class: 'tagline', text: 'Share your art, suits and VRChat adventures with your pack.' })),
+                h('header', { class: 'auth-hero' }, logo(84), h('h1', { text: 'FurZone' }), h('p', { class: 'tagline', text: 'Share your art, suits and VRChat adventures with your pack.' })),
                 card
             )
         )

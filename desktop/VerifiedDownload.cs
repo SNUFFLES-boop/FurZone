@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
-namespace Pawst;
+namespace FurZone;
 
 /// <summary>
 /// Downloads an update and refuses it unless it is exactly the file the release described: only from this

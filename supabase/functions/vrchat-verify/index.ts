@@ -1,4 +1,4 @@
-// Supabase Edge Function: checks that the logged-in person put their Pawst code in their VRChat bio, then
+// Supabase Edge Function: checks that the logged-in person put their FurZone code in their VRChat bio, then
 // marks their VRChat account as connected. Deploy with: supabase functions deploy vrchat-verify
 //
 // Secrets (Supabase → Edge Functions → Secrets):
@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
 
     try {
         const result = await verifyVrchat(who.user.id, {
-            userAgent: 'Pawst/1.0 (VRChat account linking; https://github.com/SNUFFLES-boop/Pawst)',
+            userAgent: 'FurZone/1.0 (VRChat account linking; https://github.com/SNUFFLES-boop/FurZone)',
             username,
             password,
             totpSecret: Deno.env.get('VRCHAT_BOT_TOTP_SECRET') || '',

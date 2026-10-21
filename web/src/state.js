@@ -19,7 +19,7 @@ export async function refreshMe() {
 
 function loadPref(key, fallback) {
     try {
-        const v = localStorage.getItem('pawst.pref.' + key);
+        const v = localStorage.getItem('furzone.pref.' + key);
         return v === null ? fallback : JSON.parse(v);
     } catch {
         return fallback;
@@ -29,7 +29,7 @@ function loadPref(key, fallback) {
 export function savePref(key, value) {
     app[key] = value;
     try {
-        localStorage.setItem('pawst.pref.' + key, JSON.stringify(value));
+        localStorage.setItem('furzone.pref.' + key, JSON.stringify(value));
     } catch {
         // private mode: fine, it just won't be remembered
     }

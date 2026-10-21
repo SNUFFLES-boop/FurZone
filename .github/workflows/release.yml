@@ -48,7 +48,7 @@ jobs:
       - name: Android update checks
         run: |
           mkdir -p /tmp/vd
-          javac -d /tmp/vd android/src/com/snufflesboop/pawst/VerifiedDownload.java android/test/VerifiedDownloadTest.java
+          javac -d /tmp/vd android/src/com/snufflesboop/furzone/VerifiedDownload.java android/test/VerifiedDownloadTest.java
           java -cp /tmp/vd VerifiedDownloadTest
       - name: Windows security checks
         run: dotnet run --project desktop/test
@@ -87,7 +87,7 @@ jobs:
         if: steps.keys.outputs.ok == 'true'
         run: |
           npm ci
-          PAWST_VERSION="1.0.$VERSION_CODE" VITE_GITHUB_REPO="$GITHUB_REPO" npm run build
+          FURZONE_VERSION="1.0.$VERSION_CODE" VITE_GITHUB_REPO="$GITHUB_REPO" npm run build
       - name: Build the Android app
         if: steps.keys.outputs.ok == 'true'
         env:
@@ -95,10 +95,10 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           mkdir -p android/signing
-          echo "$KEY" | base64 -d > android/signing/pawst.jks
+          echo "$KEY" | base64 -d > android/signing/furzone.jks
           BT="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)"
           AAPT2="$BT/aapt2" D8="$BT/d8" ZIPALIGN="$BT/zipalign" APKSIGNER="$BT/apksigner" bash android/build.sh
-          rm -f android/signing/pawst.jks
+          rm -f android/signing/furzone.jks
       - name: Build the Windows app
         if: steps.keys.outputs.ok == 'true'
         run: |
@@ -109,19 +109,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/build/Pawst.apk Pawst.apk
-          cp desktop/Pawst_Setup.exe Pawst_Setup.exe
+          cp android/build/FurZone.apk FurZone.apk
+          cp desktop/FurZone_Setup.exe FurZone_Setup.exe
           {
             git log -1 --format=%s "$GITHUB_SHA"
             echo
-            echo "Android: download Pawst.apk on your phone. Windows: run Pawst_Setup.exe."
+            echo "Android: download FurZone.apk on your phone. Windows: run FurZone_Setup.exe."
             echo "Already installed? The app updates itself."
             echo
-            echo "sha256 Pawst.apk: $(sha256sum Pawst.apk | cut -d' ' -f1)"
-            echo "sha256 Pawst_Setup.exe: $(sha256sum Pawst_Setup.exe | cut -d' ' -f1)"
+            echo "sha256 FurZone.apk: $(sha256sum FurZone.apk | cut -d' ' -f1)"
+            echo "sha256 FurZone_Setup.exe: $(sha256sum FurZone_Setup.exe | cut -d' ' -f1)"
           } > notes.txt
-          gh release create "v1.0.$VERSION_CODE" Pawst.apk Pawst_Setup.exe \
-            --title "Pawst 1.0.$VERSION_CODE" --notes-file notes.txt --latest
+          gh release create "v1.0.$VERSION_CODE" FurZone.apk FurZone_Setup.exe \
+            --title "FurZone 1.0.$VERSION_CODE" --notes-file notes.txt --latest
 
   vrchat-function:
     needs: test

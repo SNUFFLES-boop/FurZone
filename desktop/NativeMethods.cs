@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Pawst;
+namespace FurZone;
 
 internal static partial class NativeMethods
 {
@@ -30,7 +30,7 @@ internal static partial class NativeMethods
 
     public static void FocusExisting()
     {
-        var hwnd = FindWindow(null, "Pawst");
+        var hwnd = FindWindow(null, "FurZone");
         if (hwnd != IntPtr.Zero)
         {
             ShowWindow(hwnd, 9); // SW_RESTORE

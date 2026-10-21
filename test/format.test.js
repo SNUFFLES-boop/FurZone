@@ -42,14 +42,14 @@ test('updates: only releases with a checksum are offered', () => {
     const sha = 'a'.repeat(64);
     const release = {
         tag_name: 'v1.0.42',
-        body: 'Fixes\n\nsha256 Pawst_Setup.exe: ' + 'b'.repeat(64),
+        body: 'Fixes\n\nsha256 FurZone_Setup.exe: ' + 'b'.repeat(64),
         assets: [
-            { name: 'Pawst.apk', browser_download_url: 'https://github.com/x/Pawst.apk', size: 10, digest: 'sha256:' + sha },
-            { name: 'Pawst_Setup.exe', browser_download_url: 'https://github.com/x/Pawst_Setup.exe', size: 20 }
+            { name: 'FurZone.apk', browser_download_url: 'https://github.com/x/FurZone.apk', size: 10, digest: 'sha256:' + sha },
+            { name: 'FurZone_Setup.exe', browser_download_url: 'https://github.com/x/FurZone_Setup.exe', size: 20 }
         ]
     };
     assert.deepEqual(parseRelease(release, 'android'), {
-        versionCode: 42, version: '1.0.42', notes: 'Fixes', url: 'https://github.com/x/Pawst.apk', sha256: sha, size: 10
+        versionCode: 42, version: '1.0.42', notes: 'Fixes', url: 'https://github.com/x/FurZone.apk', sha256: sha, size: 10
     });
     assert.equal(parseRelease(release, 'windows').sha256, 'b'.repeat(64));
     assert.equal(parseRelease({ ...release, body: '', assets: [release.assets[1]] }, 'windows'), null);

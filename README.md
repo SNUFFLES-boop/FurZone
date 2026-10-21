@@ -1,4 +1,4 @@
-# Pawst 🐾
+# FurZone 🐾
 
 A social app for furries: share art, fursuits and VRChat moments, boop posts, follow your pack.
 Android and Windows apps, with **Discord** and **VRChat** connected-account badges.
@@ -17,8 +17,8 @@ npm install
 npm run build                 # web app → dist/web (demo mode without .env.production)
 node --test test/*.test.js    # database, VRChat and helper tests
 node test/ui.test.mjs         # click-through tests (needs Playwright)
-bash android/build.sh         # → android/build/Pawst.apk
-bash desktop/build.sh         # → desktop/Pawst_Setup.exe
+bash android/build.sh         # → android/build/FurZone.apk
+bash desktop/build.sh         # → desktop/FurZone_Setup.exe
 ```
 
 Made by Deltro.

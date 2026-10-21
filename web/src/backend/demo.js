@@ -490,7 +490,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
                 throw new Error('That VRChat account is already connected to someone else.');
             }
             const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-            const code = 'PAWST-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => alphabet[b % 32]).join('');
+            const code = 'FURZONE-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => alphabet[b % 32]).join('');
             vrcCodes.set(uid, { vrc, code });
             return code;
         },

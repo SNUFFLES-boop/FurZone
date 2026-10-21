@@ -206,7 +206,7 @@ test('Discord: a linked identity shows up as a connection, and goes when unlinke
 
 test('VRChat: a code is issued for a valid id, never for someone else\'s account', async () => {
     const [{ start_vrchat_link: code }] = await as('fox', 'select start_vrchat_link($1)', [VRC(1).toUpperCase()]);
-    assert.match(code, /^PAWST-[A-HJ-NP-Z2-9]{6}$/);
+    assert.match(code, /^FURZONE-[A-HJ-NP-Z2-9]{6}$/);
     const [{ start_vrchat_link: again }] = await as('fox', 'select start_vrchat_link($1)', [VRC(1)]);
     assert.notEqual(again, code);
     const [row] = await admin('select vrchat_user_id, code from private.vrchat_link_codes where user_id = $1', [users.fox]);

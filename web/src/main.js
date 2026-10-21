@@ -47,7 +47,7 @@ async function boot() {
             }
             history.replaceState(null, '', location.pathname + (location.hash.startsWith('#/') ? location.hash : '#/home'));
         }
-    } else if (window.__PAWST_TEST_BACKEND__ === 'demo' || sessionStorage.getItem('pawst.demo') === '1') {
+    } else if (window.__FURZONE_TEST_BACKEND__ === 'demo' || sessionStorage.getItem('furzone.demo') === '1') {
         backend = createDemoBackend();
     }
     if (backend) await useBackend(backend);
@@ -110,7 +110,7 @@ function buildShell() {
     const side = h(
         'aside',
         { class: 'rail' },
-        h('a', { class: 'rail-brand', href: '#/home', 'aria-label': 'Pawst home' }, logo(40), h('span', { text: 'Pawst' })),
+        h('a', { class: 'rail-brand', href: '#/home', 'aria-label': 'FurZone home' }, logo(40), h('span', { text: 'FurZone' })),
         nav('rail-nav'),
         h('div', { class: 'rail-foot' }, h('a', { class: 'nav-item', href: '#/settings' }, h('span', { class: 'nav-icon' }, icon('settings')), h('span', { class: 'nav-label', text: 'Settings' })))
     );
@@ -183,7 +183,7 @@ function route() {
 
 window.addEventListener('hashchange', route);
 // Android's back button asks the page first: close a sheet, else go back a page.
-window.pawstBack = () => {
+window.furzoneBack = () => {
     if (closeTopSheet()) return true;
     if (shell && location.hash !== '#/home') {
         history.back();

@@ -1,7 +1,7 @@
-# Setting up Pawst
+# Setting up FurZone
 
-Pawst works out of the box in **demo mode** (everything in memory, nothing shared). To make it a real
-social network, it needs a server. Pawst uses **Supabase** (free plan is enough to start): a Postgres
+FurZone works out of the box in **demo mode** (everything in memory, nothing shared). To make it a real
+social network, it needs a server. FurZone uses **Supabase** (free plan is enough to start): a Postgres
 database, logins, file storage and one small server function.
 
 Nothing on this page needs code. Take it one step at a time.
@@ -10,7 +10,7 @@ Nothing on this page needs code. Take it one step at a time.
 
 ## 1. Create the server (Supabase) — ~10 minutes
 
-1. Go to **supabase.com** → sign up → **New project**. Pick a name (e.g. `pawst`), a strong database
+1. Go to **supabase.com** → sign up → **New project**. Pick a name (e.g. `furzone`), a strong database
    password (save it somewhere), and the region closest to you.
 2. When it's ready, open **SQL Editor** → **New query**, paste **all** of `supabase/schema.sql`, press
    **Run**. It should say *Success. No rows returned*. (Running it again later is safe.)
@@ -21,11 +21,11 @@ Nothing on this page needs code. Take it one step at a time.
    can type into the app:
 
    ```
-   Your Pawst code: {{ .Token }}
+   Your FurZone code: {{ .Token }}
    ```
 5. **Authentication → URL Configuration → Redirect URLs**, add both:
    - `https://appassets.androidplatform.net/**`
-   - `https://app.pawst.local/**`
+   - `https://app.furzone.local/**`
 6. **Project Settings → API**: copy the **Project URL** and the **anon public** key. These two are
    meant to be public (they're inside the app); send them to whoever builds the app, or put them in a
    file called `.env.production` in the project folder:
@@ -38,7 +38,7 @@ Nothing on this page needs code. Take it one step at a time.
 
 ## 2. Discord login and the Discord badge — ~5 minutes
 
-1. Go to **discord.com/developers/applications** → **New Application** → name it *Pawst*.
+1. Go to **discord.com/developers/applications** → **New Application** → name it *FurZone*.
 2. **OAuth2**: copy the **Client ID**, press **Reset Secret** and copy the **Client Secret**.
    Under *Redirects*, add `https://xxxxxxxx.supabase.co/auth/v1/callback` (your Project URL + that path).
 3. In Supabase: **Authentication → Sign In / Providers → Discord** → enable, paste the ID and secret, save.
@@ -47,11 +47,11 @@ Nothing on this page needs code. Take it one step at a time.
 
 ## 3. The VRChat badge — ~10 minutes
 
-VRChat has no "log in with VRChat" for other apps, so Pawst checks a short code that people put in their
+VRChat has no "log in with VRChat" for other apps, so FurZone checks a short code that people put in their
 VRChat bio. A server function reads public VRChat profiles using a **separate VRChat account you make just
 for this** (never your main account).
 
-1. Make a new VRChat account (e.g. `PawstVerify`), log in on vrchat.com once.
+1. Make a new VRChat account (e.g. `FurZoneVerify`), log in on vrchat.com once.
 2. Turn on **two-factor authentication with an authenticator app** for it. When VRChat shows the QR code,
    also copy the **secret key** text (the "can't scan?" code). Finish setup with your authenticator app.
 3. In Supabase: **Edge Functions → Secrets**, add:
@@ -66,14 +66,14 @@ for this** (never your main account).
 
 ## 4. Updates through GitHub — ~5 minutes
 
-1. Create a **public** GitHub repository named **Pawst** (the apps read its releases to update).
+1. Create a **public** GitHub repository named **FurZone** (the apps read its releases to update).
 2. Push this project to it.
 3. **Settings → Secrets and variables → Actions → New repository secret**, add:
-   - `ANDROID_KEYSTORE_B64` — the contents of `pawst-signing-key.txt` (the long line under KEYSTORE)
+   - `ANDROID_KEYSTORE_B64` — the contents of `furzone-signing-key.txt` (the long line under KEYSTORE)
    - `ANDROID_KEYSTORE_PASSWORD` — the password in that same file
 
    Keep that file private and backed up: phones only accept updates signed with this exact key.
-4. Every push to `main` now runs all tests, then publishes **Pawst.apk** and **Pawst_Setup.exe** as a
+4. Every push to `main` now runs all tests, then publishes **FurZone.apk** and **FurZone_Setup.exe** as a
    release. Installed apps see it and update themselves.
 
 ---
@@ -81,7 +81,7 @@ for this** (never your main account).
 ## How it stays safe
 
 - **Logins**: Supabase Auth (bcrypt-hashed passwords, email confirmation, built-in rate limits on login and
-  sign-up, Discord via OAuth with PKCE). Passwords never touch Pawst's own code.
+  sign-up, Discord via OAuth with PKCE). Passwords never touch FurZone's own code.
 - **Every table has Row Level Security**: logged-out visitors can read nothing; you can only change your own
   things; counters, tags, owners, timestamps and badges are set by the database and can't be faked.
 - **Rate limits in the database** stop spam floods even from scripts: posts, comments, boops, follows,

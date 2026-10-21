@@ -1,4 +1,4 @@
--- Pawst database. Paste this whole file into Supabase → SQL Editor → Run. Safe to run again.
+-- FurZone database. Paste this whole file into Supabase → SQL Editor → Run. Safe to run again.
 --
 -- Security model
 --   * Row Level Security on every table: nothing is readable without logging in, and every write is
@@ -555,8 +555,8 @@ begin
   if exists (select 1 from connections where provider = 'vrchat' and external_id = vrc and user_id <> auth.uid()) then
     raise exception 'That VRChat account is already connected to someone else.' using errcode = '23505';
   end if;
-  -- Easy to type, hard to guess: PAWST- and 6 characters without look-alikes.
-  new_code := 'PAWST-' || (select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', (get_byte(b, i) % 32) + 1, 1), '')
+  -- Easy to type, hard to guess: FURZONE- and 6 characters without look-alikes.
+  new_code := 'FURZONE-' || (select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', (get_byte(b, i) % 32) + 1, 1), '')
                              from (select decode(replace(gen_random_uuid()::text, '-', ''), 'hex') as b) r,
                                   generate_series(0, 5) as i);
   insert into vrchat_link_codes (user_id, vrchat_user_id, code, attempts, created_at)

@@ -1,4 +1,4 @@
-package com.snufflesboop.pawst;
+package com.snufflesboop.furzone;
 
 import java.io.IOException;
 import java.io.InputStream;

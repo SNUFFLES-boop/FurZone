@@ -15,11 +15,11 @@ test('TOTP matches the RFC 6238 test vectors', async () => {
 });
 
 test('finds the code in the bio, status or links, any case', () => {
-    assert.ok(profileHasCode({ bio: 'hi!\npawst-ABC234 :3' }, 'PAWST-ABC234'));
-    assert.ok(profileHasCode({ bio: '', statusDescription: 'PAWST-ABC234' }, 'PAWST-ABC234'));
-    assert.ok(profileHasCode({ bioLinks: ['https://x.example/PAWST-ABC234'] }, 'PAWST-ABC234'));
-    assert.ok(!profileHasCode({ bio: 'PAWST-ABC23' }, 'PAWST-ABC234'));
-    assert.ok(!profileHasCode(null, 'PAWST-ABC234'));
+    assert.ok(profileHasCode({ bio: 'hi!\nfurzone-ABC234 :3' }, 'FURZONE-ABC234'));
+    assert.ok(profileHasCode({ bio: '', statusDescription: 'FURZONE-ABC234' }, 'FURZONE-ABC234'));
+    assert.ok(profileHasCode({ bioLinks: ['https://x.example/FURZONE-ABC234'] }, 'FURZONE-ABC234'));
+    assert.ok(!profileHasCode({ bio: 'FURZONE-ABC23' }, 'FURZONE-ABC234'));
+    assert.ok(!profileHasCode(null, 'FURZONE-ABC234'));
     assert.ok(!profileHasCode({ bio: 'x' }, ''));
 });
 
@@ -29,14 +29,14 @@ test('keeps only VRChat login cookies', () => {
     assert.equal(cookieFrom([], ''), '');
 });
 
-function fakeServer({ cookie = '', user, loginNeeds2fa = true, pending = { vrchat_user_id: VRC, code: 'PAWST-ABC234' } } = {}) {
+function fakeServer({ cookie = '', user, loginNeeds2fa = true, pending = { vrchat_user_id: VRC, code: 'FURZONE-ABC234' } } = {}) {
     const calls = { rpc: [], http: [] };
     let stored = cookie;
     const deps = {
         username: 'bot@example.com',
         password: 'p@ss:word',
         totpSecret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
-        userAgent: 'Pawst-test',
+        userAgent: 'FurZone-test',
         async rpc(name, args) {
             calls.rpc.push([name, args]);
             if (name === 'vrchat_claim_attempt') return pending ? [pending] : [];
@@ -70,16 +70,16 @@ function fakeServer({ cookie = '', user, loginNeeds2fa = true, pending = { vrcha
 }
 
 test('logs the bot in with 2FA, finds the code and connects', async () => {
-    const s = fakeServer({ cookie: 'auth=stale', user: { id: VRC, displayName: 'Foxy', bio: 'hello PAWST-ABC234' } });
+    const s = fakeServer({ cookie: 'auth=stale', user: { id: VRC, displayName: 'Foxy', bio: 'hello FURZONE-ABC234' } });
     const result = await verifyVrchat('me', s.deps);
     assert.deepEqual(result, { connected: true, handle: 'Foxy' });
     assert.equal(s.stored(), 'auth=fresh; twoFactorAuth=tfa');
     assert.deepEqual(s.calls.rpc.at(-1), ['vrchat_complete', { p_user: 'me', p_vrchat_user_id: VRC, p_handle: 'Foxy' }]);
-    assert.equal(s.calls.http[0][1].headers['User-Agent'], 'Pawst-test');
+    assert.equal(s.calls.http[0][1].headers['User-Agent'], 'FurZone-test');
 });
 
 test('reuses a saved login when it still works', async () => {
-    const s = fakeServer({ cookie: 'auth=fresh', user: { id: VRC, displayName: 'Foxy', bio: 'PAWST-ABC234' } });
+    const s = fakeServer({ cookie: 'auth=fresh', user: { id: VRC, displayName: 'Foxy', bio: 'FURZONE-ABC234' } });
     assert.equal((await verifyVrchat('me', s.deps)).connected, true);
     assert.equal(s.calls.http.length, 1);
 });
@@ -88,10 +88,10 @@ test('no code yet, wrong account, missing account', async () => {
     let s = fakeServer({ cookie: 'auth=fresh', user: { id: VRC, displayName: 'Foxy', bio: 'nothing here' } });
     let r = await verifyVrchat('me', s.deps);
     assert.equal(r.connected, false);
-    assert.match(r.message, /PAWST-ABC234/);
+    assert.match(r.message, /FURZONE-ABC234/);
     assert.ok(!s.calls.rpc.some(([n]) => n === 'vrchat_complete'));
 
-    s = fakeServer({ cookie: 'auth=fresh', user: { id: 'usr_99999999-1111-2222-3333-444455556666', bio: 'PAWST-ABC234' } });
+    s = fakeServer({ cookie: 'auth=fresh', user: { id: 'usr_99999999-1111-2222-3333-444455556666', bio: 'FURZONE-ABC234' } });
     r = await verifyVrchat('me', s.deps);
     assert.equal(r.connected, false);
     assert.ok(!s.calls.rpc.some(([n]) => n === 'vrchat_complete'));
@@ -106,7 +106,7 @@ test('no code yet, wrong account, missing account', async () => {
 });
 
 test('a bot without authenticator 2FA is reported clearly', async () => {
-    const s = fakeServer({ user: { id: VRC, bio: 'PAWST-ABC234' } });
+    const s = fakeServer({ user: { id: VRC, bio: 'FURZONE-ABC234' } });
     s.deps.totpSecret = '';
     await assert.rejects(verifyVrchat('me', s.deps), /2FA/);
 });

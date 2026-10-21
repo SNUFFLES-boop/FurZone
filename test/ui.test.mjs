@@ -198,7 +198,7 @@ await test('VRChat: bad link refused, code shown, then connected', async () => {
     await page.getByPlaceholder('https://vrchat.com/home/user/usr_').fill('https://vrchat.com/home/user/usr_c1644b5b-3ca4-45b4-97c6-a2a0de70d469');
     await page.getByRole('button', { name: 'Get my code' }).click();
     const code = await page.locator('.code-box code').textContent();
-    assert.match(code, /^PAWST-[A-HJ-NP-Z2-9]{6}$/);
+    assert.match(code, /^FURZONE-[A-HJ-NP-Z2-9]{6}$/);
     await shot('09-vrchat-code');
     await page.getByRole('button', { name: "I've added it" }).click();
     await toastSays('VRChat connected');

@@ -33,7 +33,7 @@ export function renderSettings(view) {
                 item('lock', 'Change password', changePassword)
             ),
             group('Connected accounts', h('div', { class: 'pad-sm' }, connectionsSection())),
-            group('Safety', item('ban', 'Blocked accounts', blockedList), h('p', { class: 'settings-note' }, icon('shield'), 'Pawst is safe-for-work only. Report posts that break the rules: five reports hide a post until a moderator checks it.')),
+            group('Safety', item('ban', 'Blocked accounts', blockedList), h('p', { class: 'settings-note' }, icon('shield'), 'FurZone is safe-for-work only. Report posts that break the rules: five reports hide a post until a moderator checks it.')),
             group(
                 'App',
                 h('label', { class: 'settings-item' }, icon('volume'), h('span', { class: 'grow', text: 'Play videos with sound' }), mutedToggle),
@@ -46,7 +46,7 @@ export function renderSettings(view) {
                 }),
                 item('trash', 'Delete my account', deleteAccount, h('span'))
             ),
-            h('p', { class: 'fine center', text: `Pawst ${VERSION}${app.backend.kind === 'demo' ? ' · demo mode' : ''}` })
+            h('p', { class: 'fine center', text: `FurZone ${VERSION}${app.backend.kind === 'demo' ? ' · demo mode' : ''}` })
         )
     );
 }

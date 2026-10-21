@@ -1,9 +1,9 @@
-namespace Pawst;
+namespace FurZone;
 
 internal static class Program
 {
     /// <summary>The installer waits for this to disappear before replacing files during an update.</summary>
-    public const string MutexName = "Local\\PawstSingleInstance";
+    public const string MutexName = "Local\\FurZoneSingleInstance";
 
     [STAThread]
     private static void Main()

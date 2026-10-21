@@ -6,9 +6,9 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>Pawst</AssemblyName>
-    <RootNamespace>Pawst</RootNamespace>
-    <ApplicationIcon>Pawst.ico</ApplicationIcon>
+    <AssemblyName>FurZone</AssemblyName>
+    <RootNamespace>FurZone</RootNamespace>
+    <ApplicationIcon>FurZone.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -18,10 +18,10 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <!-- CI sets these: version 1.0.<VersionCode>, and which GitHub repo updates come from. -->
     <VersionCode Condition="'$(VersionCode)' == ''">1</VersionCode>
-    <GitHubRepo Condition="'$(GitHubRepo)' == ''">SNUFFLES-boop/Pawst</GitHubRepo>
+    <GitHubRepo Condition="'$(GitHubRepo)' == ''">SNUFFLES-boop/FurZone</GitHubRepo>
     <Version>1.0.$(VersionCode)</Version>
     <Company>SNUFFLES-boop</Company>
-    <Product>Pawst</Product>
+    <Product>FurZone</Product>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="VersionCode" Value="$(VersionCode)" />

@@ -60,7 +60,7 @@ export function icon(name, cls) {
     return svg;
 }
 
-/** The Pawst mark: a paw print in a speech bubble. */
+/** The FurZone mark: a paw print in a speech bubble. */
 export function logo(size = 72) {
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('viewBox', '0 0 64 64');
@@ -70,7 +70,7 @@ export function logo(size = 72) {
     svg.setAttribute('aria-hidden', 'true');
     const defs = document.createElementNS(NS, 'defs');
     const grad = document.createElementNS(NS, 'linearGradient');
-    grad.setAttribute('id', 'pawst-grad');
+    grad.setAttribute('id', 'furzone-grad');
     grad.setAttribute('x1', '0');
     grad.setAttribute('y1', '0');
     grad.setAttribute('x2', '1');
@@ -89,7 +89,7 @@ export function logo(size = 72) {
     svg.appendChild(defs);
     const bubble = document.createElementNS(NS, 'path');
     bubble.setAttribute('d', 'M32 4C16.5 4 4 14.9 4 28.5c0 7.6 3.9 14.4 10.1 18.9L12 60l13.6-7.2c2.1.4 4.2.7 6.4.7 15.5 0 28-10.9 28-24.5S47.5 4 32 4z');
-    bubble.setAttribute('fill', 'url(#pawst-grad)');
+    bubble.setAttribute('fill', 'url(#furzone-grad)');
     svg.appendChild(bubble);
     const paw = document.createElementNS(NS, 'path');
     paw.setAttribute(

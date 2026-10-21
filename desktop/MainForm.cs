@@ -5,11 +5,11 @@ using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace Pawst;
+namespace FurZone;
 
 /// <summary>
-/// The Pawst window: the app's web code (installed next to Pawst.exe in "web") shown in WebView2 at
-/// https://app.pawst.local, with dev tools off, no host objects, and only the app, Discord's login and
+/// The FurZone window: the app's web code (installed next to FurZone.exe in "web") shown in WebView2 at
+/// https://app.furzone.local, with dev tools off, no host objects, and only the app, Discord's login and
 /// our Supabase sign-in allowed inside. Talks to the page only through JSON messages from the app's own origin.
 /// </summary>
 public sealed class MainForm : Form
@@ -22,7 +22,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Pawst";
+        Text = "FurZone";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         BackColor = Color.FromArgb(15, 11, 26);
         MinimumSize = new Size(420, 640);
@@ -32,13 +32,13 @@ public sealed class MainForm : Form
 
         var meta = typeof(MainForm).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToDictionary(a => a.Key, a => a.Value);
         versionCode = int.TryParse(meta.GetValueOrDefault("VersionCode"), out var v) ? v : 0;
-        githubRepo = meta.GetValueOrDefault("GitHubRepo") ?? "SNUFFLES-boop/Pawst";
+        githubRepo = meta.GetValueOrDefault("GitHubRepo") ?? "SNUFFLES-boop/FurZone";
 
         http = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 5 })
         {
             Timeout = TimeSpan.FromMinutes(15)
         };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd($"Pawst-Windows/1.0.{versionCode}");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"FurZone-Windows/1.0.{versionCode}");
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -52,15 +52,15 @@ public sealed class MainForm : Form
         base.OnLoad(e);
         try
         {
-            var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Pawst", "WebView2");
+            var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FurZone", "WebView2");
             var env = await CoreWebView2Environment.CreateAsync(null, data, new CoreWebView2EnvironmentOptions());
             await web.EnsureCoreWebView2Async(env);
         }
         catch (WebView2RuntimeNotFoundException)
         {
             var go = MessageBox.Show(this,
-                "Pawst needs Microsoft Edge WebView2, which comes with Windows 11 and up-to-date Windows 10.\n\nOpen the download page now?",
-                "Pawst", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                "FurZone needs Microsoft Edge WebView2, which comes with Windows 11 and up-to-date Windows 10.\n\nOpen the download page now?",
+                "FurZone", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
             if (go == DialogResult.Yes) OpenExternal("https://go.microsoft.com/fwlink/p/?LinkId=2124703");
             Close();
             return;
@@ -76,7 +76,7 @@ public sealed class MainForm : Form
         s.IsGeneralAutofillEnabled = false;
         s.AreBrowserAcceleratorKeysEnabled = false;
         s.IsBuiltInErrorPageEnabled = true;
-        s.UserAgent += $" PawstWindows/1.0.{versionCode}";
+        s.UserAgent += $" FurZoneWindows/1.0.{versionCode}";
 
         var webRoot = Path.Combine(AppContext.BaseDirectory, "web");
         core.SetVirtualHostNameToFolderMapping(NavigationPolicy.AppHost, webRoot, CoreWebView2HostResourceAccessKind.Deny);
@@ -105,7 +105,7 @@ public sealed class MainForm : Form
                 ? CoreWebView2PermissionState.Allow
                 : CoreWebView2PermissionState.Deny;
         };
-        core.DocumentTitleChanged += (_, _) => Text = "Pawst";
+        core.DocumentTitleChanged += (_, _) => Text = "FurZone";
         core.WebMessageReceived += OnMessage;
         core.Navigate(NavigationPolicy.StartUrl);
     }
@@ -174,9 +174,9 @@ public sealed class MainForm : Form
         var progress = new Progress<int>(p => Post(new { type = "update", state = "downloading", percent = p }));
         try
         {
-            var dir = Path.Combine(Path.GetTempPath(), "PawstUpdate");
+            var dir = Path.Combine(Path.GetTempPath(), "FurZoneUpdate");
             Directory.CreateDirectory(dir);
-            var file = Path.Combine(dir, $"Pawst_Setup_{Guid.NewGuid():N}.exe");
+            var file = Path.Combine(dir, $"FurZone_Setup_{Guid.NewGuid():N}.exe");
             await VerifiedDownload.DownloadAsync(http, url ?? "", VerifiedDownload.ReleasesPrefix(githubRepo), sha256, size, file, progress);
             Post(new { type = "update", state = "installing", percent = 100 });
             Process.Start(new ProcessStartInfo(file, "/S /UPDATE") { UseShellExecute = true });

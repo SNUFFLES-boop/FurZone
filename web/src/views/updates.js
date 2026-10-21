@@ -20,7 +20,7 @@ export async function check(manual = false) {
     try {
         state.info = await checkForUpdate();
         if (state.info && state.info.available && !manual) {
-            toast(`Pawst ${state.info.version} is out — update in Settings.`, 'info', 6000);
+            toast(`FurZone ${state.info.version} is out — update in Settings.`, 'info', 6000);
         }
     } catch (e) {
         state.error = errorText(e);
