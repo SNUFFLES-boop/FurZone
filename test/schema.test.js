@@ -627,3 +627,34 @@ test('search posts by words or #tag, never hidden or private posts', async () =>
     assert.ok(!(await titles('secret post')).length, 'private posts stay private');
     await as('priv', 'update profiles set is_private = false where id = $1', [users.priv]);
 });
+
+test('followers lists are private, you can remove a follower, and insights are only about you', async () => {
+    for (const n of ['star', 'fanA', 'fanB', 'nosy']) if (!users[n]) await signUp(n);
+    await as('fanA', 'insert into follows (followee_id) values ($1)', [users.star]);
+    await as('fanB', 'insert into follows (followee_id) values ($1)', [users.star]);
+    // The person followed sees both; a follower sees only their own row; someone else sees nothing.
+    assert.equal((await as('star', 'select * from follows where followee_id = $1', [users.star])).length, 2);
+    assert.equal((await as('fanA', 'select * from follows where followee_id = $1', [users.star])).length, 1);
+    assert.equal((await as('nosy', 'select * from follows where followee_id = $1', [users.star])).length, 0);
+    // Counts on the profile still show for everyone.
+    assert.equal((await as('nosy', 'select followers_count from profiles where id = $1', [users.star]))[0].followers_count, 2);
+    // Remove a follower.
+    await as('star', 'delete from follows where follower_id = $1 and followee_id = $2', [users.fanB, users.star]);
+    assert.equal((await admin('select followers_count from profiles where id = $1', [users.star]))[0].followers_count, 1);
+    // Nobody else can remove someone's follower.
+    await as('nosy', 'delete from follows where follower_id = $1 and followee_id = $2', [users.fanA, users.star]);
+    assert.equal((await admin('select count(*)::int as n from follows where followee_id = $1', [users.star]))[0].n, 1);
+    // Insights.
+    const [post] = await as('star', `insert into posts (caption) values ('look at me') returning id`);
+    await as('fanA', 'insert into boops (post_id) values ($1)', [post.id]);
+    await as('fanA', `insert into comments (post_id, body) values ($1, 'wow')`, [post.id]);
+    const [{ my_insights: s }] = await as('star', 'select my_insights()');
+    assert.equal(s.followers, 1);
+    assert.equal(s.hearts, 1);
+    assert.equal(s.comments, 1);
+    assert.equal(s.hearts_week, 1);
+    assert.equal(s.top_fans[0].username, 'fana');
+    assert.equal(s.top_fans[0].n, 2);
+    const [{ my_insights: other }] = await as('nosy', 'select my_insights()');
+    assert.equal(other.hearts, 0, 'only your own numbers');
+});

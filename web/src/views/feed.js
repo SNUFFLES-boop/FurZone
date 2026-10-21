@@ -1,4 +1,4 @@
-import { h, icon, segmented, emptyState, toast, errorText, clear } from '../ui.js';
+import { h, icon, segmented, emptyState, toast, errorText, clear, fill } from '../ui.js';
 import { openSearch } from './search.js';
 import { app } from '../state.js';
 import { renderSlide } from './postcard.js';
@@ -64,13 +64,13 @@ export function slideList(container, load, { empty } = {}) {
     }
 
     function showEmpty() {
-        list.replaceChildren(empty ? empty() : emptyState('paw', 'Nothing here yet', ''));
+        fill(list, empty ? empty() : emptyState('paw', 'Nothing here yet', ''));
     }
 
     async function more() {
         if (loading || done) return;
         loading = true;
-        sentinel.replaceChildren(h('div', { class: 'spinner' }));
+        fill(sentinel, h('div', { class: 'spinner' }));
         try {
             const posts = await load(before);
             if (!list.isConnected) return;
@@ -83,10 +83,10 @@ export function slideList(container, load, { empty } = {}) {
                 visible.observe(slide);
             }
             if (!list.querySelector('.slide')) showEmpty();
-            else if (done) sentinel.replaceChildren(h('p', { class: 'end-note' }, icon('paw'), "You're all caught up!"));
-            else sentinel.replaceChildren();
+            else if (done) fill(sentinel, h('p', { class: 'end-note' }, icon('paw'), "You're all caught up!"));
+            else fill(sentinel);
         } catch (e) {
-            sentinel.replaceChildren(
+            fill(sentinel, 
                 h('div', { class: 'load-error' }, h('p', { text: errorText(e) }), h('button', { class: 'btn ghost', text: 'Try again', onclick: () => more() }))
             );
         } finally {
@@ -122,7 +122,7 @@ export function renderFeed(view) {
     const head = h('header', { class: 'feed-head' });
 
     function draw() {
-        head.replaceChildren(
+        fill(head, 
             h('span', { class: 'feed-brand', text: 'FurZone' }),
             segmented(
                 [

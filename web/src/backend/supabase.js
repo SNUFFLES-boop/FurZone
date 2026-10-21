@@ -591,6 +591,55 @@ export function createSupabaseBackend(url, anonKey) {
             const people = await decorate(rows.map((r) => shapeProfile(r.requester)));
             return rows.map((r, i) => ({ created_at: r.created_at, user: people[i] }));
         },
+        /** People who follow userIdArg (only works for your own profile; the database keeps lists private). */
+        async followers(userIdArg) {
+            const rows = await must(
+                client
+                    .from('follows')
+                    .select(`created_at, who:profiles!follows_follower_id_fkey(${PROFILE_COLS})`)
+                    .eq('followee_id', userIdArg)
+                    .order('created_at', { ascending: false })
+                    .limit(500)
+            );
+            const people = await decorate(rows.map((r) => shapeProfile(r.who)));
+            return rows.map((r, i) => ({ created_at: r.created_at, user: people[i] }));
+        },
+        async following(userIdArg) {
+            const rows = await must(
+                client
+                    .from('follows')
+                    .select(`created_at, who:profiles!follows_followee_id_fkey(${PROFILE_COLS})`)
+                    .eq('follower_id', userIdArg)
+                    .order('created_at', { ascending: false })
+                    .limit(500)
+            );
+            const people = await decorate(rows.map((r) => shapeProfile(r.who)));
+            return rows.map((r, i) => ({ created_at: r.created_at, user: people[i] }));
+        },
+        async removeFollower(userIdArg) {
+            const me = await userId();
+            await must(client.from('follows').delete().eq('follower_id', userIdArg).eq('followee_id', me));
+        },
+        async myInsights() {
+            const data = await must(client.rpc('my_insights'));
+            const fans = await decorate((data.top_fans || []).map((f) => ({ ...shapeProfile(f), n: f.n })));
+            return { ...data, top_fans: fans };
+        },
+        /** Someone's posts with the most hearts (then views) first. */
+        async userPopular(userIdArg) {
+            const rows = await must(
+                client
+                    .from('posts')
+                    .select(`*, profiles!posts_user_id_fkey!inner(${PROFILE_COLS})`)
+                    .eq('user_id', userIdArg)
+                    .order('boops_count', { ascending: false })
+                    .order('views_count', { ascending: false })
+                    .order('created_at', { ascending: false })
+                    .limit(30)
+            );
+            const role = await roleOf(userIdArg);
+            return rows.map((r) => shapePost({ ...r, ...r.profiles, id: r.id, role }));
+        },
         async followRequestCount() {
             const me = await userId();
             const { count, error } = await client.from('follow_requests').select('requester_id', { count: 'exact', head: true }).eq('target_id', me);

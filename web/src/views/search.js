@@ -1,5 +1,5 @@
 // Search from the For You page: posts (by words or #tag) and people (by name or species).
-import { h, icon, sheet, spinner, errorText, emptyState, segmented } from '../ui.js';
+import { h, icon, sheet, spinner, errorText, emptyState, segmented, fill } from '../ui.js';
 import { app } from '../state.js';
 import { postTile, personRow } from './explore.js';
 
@@ -16,7 +16,7 @@ export function openSearch() {
             let timer = 0;
 
             function drawTabs() {
-                tabs.replaceChildren(
+                fill(tabs, 
                     segmented(
                         [
                             ['posts', 'Posts'],
@@ -37,28 +37,28 @@ export function openSearch() {
                 clearTimeout(timer);
                 const q = input.value.trim();
                 if (q.length < 2) {
-                    results.replaceChildren(h('p', { class: 'muted center pad', text: 'Type at least 2 letters. Try a #tag like #art or #vrchat.' }));
+                    fill(results, h('p', { class: 'muted center pad', text: 'Type at least 2 letters. Try a #tag like #art or #vrchat.' }));
                     return;
                 }
                 const mine = ++seq;
-                results.replaceChildren(spinner());
+                fill(results, spinner());
                 timer = setTimeout(async () => {
                     try {
                         if (lastTab === 'posts') {
                             const posts = await app.backend.searchPosts(q);
                             if (mine !== seq) return;
-                            results.replaceChildren(
+                            fill(results, 
                                 posts.length ? h('div', { class: 'grid discover' }, posts.map((p, i) => postTile(p, i))) : emptyState('search', 'No posts found', `Nothing matches "${q}" yet.`)
                             );
                         } else {
                             const people = await app.backend.searchUsers(q);
                             if (mine !== seq) return;
-                            results.replaceChildren(
+                            fill(results, 
                                 ...(people.length ? people.map((p) => personRow(p)) : [emptyState('user', 'No one found', `No one matches "${q}".`)])
                             );
                         }
                     } catch (e) {
-                        if (mine === seq) results.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+                        if (mine === seq) fill(results, h('p', { class: 'form-error', text: errorText(e) }));
                     }
                 }, 280);
             }

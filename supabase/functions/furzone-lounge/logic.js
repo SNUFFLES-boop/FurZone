@@ -8,6 +8,25 @@
 export const DISCORD_API = 'https://discord.com/api/v10';
 const SNOWFLAKE = /^\d{5,25}$/;
 
+/** The bot token without the bits people often copy along with it: spaces, quotes, a "Bot " in front. */
+export function cleanBotToken(raw) {
+    return String(raw || '')
+        .trim()
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .replace(/^Bot\s+/i, '')
+        .trim();
+}
+
+/** What kind of value this looks like, in plain words (never shows the value itself). */
+export function botTokenHint(token) {
+    if (/^[\w-]{20,}\.[\w-]{4,}\.[\w-]{20,}$/.test(token)) return '';
+    if (/^\d{15,25}$/.test(token)) return 'What you saved is only numbers: that is an ID (Application ID or Channel ID), not the bot token.';
+    if (/^[0-9a-f]{64}$/i.test(token)) return 'What you saved looks like the Public Key, not the bot token.';
+    if (/^[\w-]{30,34}$/.test(token)) return 'What you saved looks like the Client Secret (from OAuth2), not the bot token.';
+    if (/^https?:/i.test(token)) return 'What you saved is a link, not the bot token.';
+    return 'What you saved does not look like a bot token. A bot token is about 70 characters with two dots in it (like xxxx.yyyy.zzzz).';
+}
+
 /** { id, token } from a channel webhook URL, or null if it isn't one. */
 export function parseWebhookUrl(url) {
     try {
@@ -149,7 +168,8 @@ export async function checkDiscordLink(deps) {
     }
     const me = await deps.discord('/users/@me', { bot: true });
     if (me.status === 401) {
-        add(false, 'The bot token is wrong. In the Discord developer page: Bot -> Reset Token, then put the new one in DISCORD_BOT_TOKEN. (It is not the "Client Secret".)');
+        const hint = deps.tokenHint || 'Discord says this token is not valid (it may be old: every Reset Token makes the old one stop working).';
+        add(false, `The bot token is wrong. ${hint} Fix: Discord developer page -> your app -> Bot -> Reset Token -> Copy, then in Supabase replace the value of DISCORD_BOT_TOKEN with it (only the token, nothing else).`);
         return out;
     }
     if (me.status !== 200) {

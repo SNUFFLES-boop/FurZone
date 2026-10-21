@@ -1,4 +1,4 @@
-import { h, icon, avatar, emptyState, toast, errorText, withBusy, spinner } from '../ui.js';
+import { h, icon, avatar, emptyState, toast, errorText, withBusy, spinner, fill } from '../ui.js';
 import { compactCount, hueOf } from '../format.js';
 import { app } from '../state.js';
 import { nameLine } from './postcard.js';
@@ -108,28 +108,28 @@ export function renderExplore(view, ctx, tag) {
     input.oninput = () => {
         clearTimeout(timer);
         const q = input.value.trim();
-        if (!q) return results.replaceChildren();
+        if (!q) return fill(results);
         if (q.startsWith('#')) {
             const t = q.slice(1).toLowerCase().replace(/[^a-z0-9_]/g, '');
-            return results.replaceChildren(t ? h('a', { class: 'tag-jump', href: `#/explore/tag/${t}` }, icon('hash'), `See posts tagged #${t}`) : '');
+            return fill(results, t ? h('a', { class: 'tag-jump', href: `#/explore/tag/${t}` }, icon('hash'), `See posts tagged #${t}`) : '');
         }
         const mine = ++seq;
-        results.replaceChildren(spinner());
+        fill(results, spinner());
         timer = setTimeout(async () => {
             try {
                 const people = await app.backend.searchUsers(q);
                 if (mine !== seq) return;
-                results.replaceChildren(
+                fill(results, 
                     ...(people.length ? people.map((p) => personRow(p)) : [h('p', { class: 'muted pad', text: `No one matches "${q}".` })])
                 );
             } catch (e) {
-                if (mine === seq) results.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+                if (mine === seq) fill(results, h('p', { class: 'form-error', text: errorText(e) }));
             }
         }, 300);
     };
 
     function chip(list, key, row, withIcons) {
-        row.replaceChildren(
+        fill(row, 
             ...list.map(([v, label, ic]) =>
                 h(
                     'button',
@@ -163,20 +163,20 @@ export function renderExplore(view, ctx, tag) {
         const mine = ++loadSeq;
         if (reset) {
             offset = 0;
-            grid.replaceChildren(spinner());
+            fill(grid, spinner());
             more.hidden = true;
         }
         try {
             const range = picks.sort === 'newest' ? 'all' : picks.range;
             const posts = await app.backend.explore({ sort: picks.sort, range, type: picks.type, offset, limit: PAGE });
             if (!alive || mine !== loadSeq) return;
-            if (reset) grid.replaceChildren();
+            if (reset) fill(grid);
             const start = offset;
             grid.append(...posts.map((p, i) => postTile(p, start + i, { rank: picks.sort !== 'newest' })));
             offset += posts.length;
             more.hidden = posts.length < PAGE;
             if (!grid.children.length) {
-                grid.replaceChildren(
+                fill(grid, 
                     emptyState(
                         'sparkles',
                         'Nothing here yet',
@@ -185,7 +185,7 @@ export function renderExplore(view, ctx, tag) {
                 );
             }
         } catch (e) {
-            if (alive && mine === loadSeq) grid.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+            if (alive && mine === loadSeq) fill(grid, h('p', { class: 'form-error', text: errorText(e) }));
         }
     }
     more.onclick = () => withBusy(more, () => load(false));
@@ -214,7 +214,7 @@ export function renderExplore(view, ctx, tag) {
     app.backend
         .trendingTags()
         .then((tags) =>
-            trending.replaceChildren(
+            fill(trending, 
                 ...(tags.length
                     ? tags.map((t, i) =>
                           h('a', { class: 'tag-chip', href: `#/explore/tag/${t.tag}`, style: { '--i': String(i) } }, h('span', { text: '#' + t.tag }), h('small', { text: String(t.uses) }))
@@ -222,7 +222,7 @@ export function renderExplore(view, ctx, tag) {
                     : [h('p', { class: 'muted', text: 'Tags people use this week show up here.' })])
             )
         )
-        .catch((e) => trending.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+        .catch((e) => fill(trending, h('p', { class: 'form-error', text: errorText(e) })));
 
     // A few active people from the feed you don't follow yet.
     app.backend
@@ -237,11 +237,11 @@ export function renderExplore(view, ctx, tag) {
             }
             const full = (await Promise.all(people.slice(0, 6).map((u) => app.backend.profileByUsername(u.username)))).filter(Boolean);
             if (!alive) return;
-            suggestions.replaceChildren(
+            fill(suggestions, 
                 ...(full.length ? full.map((p) => personRow(p)) : [h('p', { class: 'muted', text: "You're following everyone who's posted. Nice!" })])
             );
         })
-        .catch(() => suggestions.replaceChildren());
+        .catch(() => fill(suggestions));
 
     return () => (alive = false);
 }

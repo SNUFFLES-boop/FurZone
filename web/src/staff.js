@@ -115,10 +115,10 @@ export function staffTools(p, onChange) {
             app.backend
                 .staffRestriction(p.id)
                 .then((r) => draw(activeRestriction(r)))
-                .catch((e) => status.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+                .catch((e) => fill(status, h('p', { class: 'form-error', text: errorText(e) })));
 
             function draw(r) {
-                status.replaceChildren(
+                fill(status, 
                     h('div', { class: 'staff-who' }, avatar(p, 'md', p.avatar_url), h('span', { class: 'grow' }, h('strong', { text: p.display_name || p.username }), ' ', roleBadge(p.role))),
                     r
                         ? h('p', { class: 'staff-state warn' }, icon('ban'), h('span', null, restrictionText(r), r.reason ? ` · “${r.reason}”` : ''))
@@ -247,10 +247,10 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
     );
 
     const load = (promise, render, empty) => {
-        body.replaceChildren(spinner());
+        fill(body, spinner());
         promise
-            .then((items) => alive && body.replaceChildren(...(items.length ? items.map(render) : [empty])))
-            .catch((e) => alive && body.replaceChildren(h('p', { class: 'form-error pad', text: errorText(e) })));
+            .then((items) => alive && fill(body, ...(items.length ? items.map(render) : [empty])))
+            .catch((e) => alive && fill(body, h('p', { class: 'form-error pad', text: errorText(e) })));
     };
 
     if (tab === 'reports') load(app.backend.staffReports(), reportCard, emptyState('check', 'All clear', 'No reported posts right now.'));
@@ -272,7 +272,7 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
         const done = (msg) => {
             toast(msg, 'success');
             card.remove();
-            if (!body.querySelector('.report-card')) body.replaceChildren(emptyState('check', 'All clear', 'No reported posts right now.'));
+            if (!body.querySelector('.report-card')) fill(body, emptyState('check', 'All clear', 'No reported posts right now.'));
         };
         const run = (fn, msg) => async () => {
             try {
@@ -341,7 +341,7 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
                 withBusy(lift, async () => {
                     if (await liftAll(x.user)) {
                         row.remove();
-                        if (!body.querySelector('.report-card')) body.replaceChildren(emptyState('check', 'Nobody is banned or limited', ''));
+                        if (!body.querySelector('.report-card')) fill(body, emptyState('check', 'Nobody is banned or limited', ''));
                     }
                 });
         }

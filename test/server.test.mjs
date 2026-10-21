@@ -116,5 +116,13 @@ check('only the server fetches VRChat news', await rpc(FUR, 'news_claim_fetch'),
 
 // ---- search ----
 check('search posts', await rpc(OWNER, 'search_posts', { p_query: 'back', p_limit: 30 }), (r) => r.status === 200 && r.body.length === 1);
+
+// ---- profile: followers lists, insights, popular ----
+check('my followers + who', await call(FUR, `/follows?select=${q(`created_at, who:profiles!follows_follower_id_fkey(${PC})`)}&followee_id=eq.${FUR}&order=created_at.desc&limit=500`), (r) => r.status === 200 && r.body[0].who.username === 'owner1');
+check('who I follow + who', await call(OWNER, `/follows?select=${q(`created_at, who:profiles!follows_followee_id_fkey(${PC})`)}&follower_id=eq.${OWNER}&order=created_at.desc&limit=500`), (r) => r.status === 200 && r.body[0].who.username === 'fur2');
+check('my insights', await rpc(FUR, 'my_insights'), (r) => r.status === 200 && typeof r.body.followers === 'number' && Array.isArray(r.body.top_fans));
+check('popular posts on a profile', await call(OWNER, `/posts?select=${q(`*, profiles!posts_user_id_fkey!inner(${PC})`)}&user_id=eq.${FUR}&order=boops_count.desc,views_count.desc,created_at.desc&limit=30`), (r) => r.status === 200);
+check('remove a follower', await call(FUR, `/follows?follower_id=eq.${OWNER}&followee_id=eq.${FUR}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }));
+check('follower is gone', await call(OWNER, `/follows?select=followee_id&follower_id=eq.${OWNER}&followee_id=eq.${FUR}`), (r) => r.status === 200 && r.body.length === 0);
 console.log(fails ? `${fails} FAILED` : 'all server queries work');
 process.exit(fails ? 1 : 0);

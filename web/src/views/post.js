@@ -1,4 +1,4 @@
-import { h, icon, emptyState, errorText, spinner } from '../ui.js';
+import { h, icon, emptyState, errorText, spinner, fill } from '../ui.js';
 import { app } from '../state.js';
 import { renderSlide } from './postcard.js';
 
@@ -24,13 +24,13 @@ export function renderPostPage(view, ctx, id) {
         .then((post) => {
             if (!body.isConnected) return;
             if (!post) {
-                body.replaceChildren(emptyState('paw', 'Post not found', 'It may have been deleted, hidden, or posted by someone you blocked.'));
+                fill(body, emptyState('paw', 'Post not found', 'It may have been deleted, hidden, or posted by someone you blocked.'));
                 return;
             }
             slide = renderSlide(post, { onRemoved: () => ctx.go('#/home') });
-            body.replaceChildren(slide);
+            fill(body, slide);
             slide.activate();
         })
-        .catch((e) => body.replaceChildren(h('p', { class: 'form-error pad', text: errorText(e) })));
+        .catch((e) => fill(body, h('p', { class: 'form-error pad', text: errorText(e) })));
     return () => slide && slide.deactivate();
 }

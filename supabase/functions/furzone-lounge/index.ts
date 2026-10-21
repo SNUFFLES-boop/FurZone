@@ -10,7 +10,7 @@
 //   DISCORD_BOT_TOKEN     a bot in your server that can read that channel (Message Content intent on)
 //   DISCORD_CHANNEL_ID    the channel's id (Developer Mode -> right-click the channel -> Copy Channel ID)
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { DISCORD_API, parseWebhookUrl, webhookPayload, syncFromDiscord, checkDiscordLink } from './logic.js';
+import { DISCORD_API, parseWebhookUrl, webhookPayload, syncFromDiscord, checkDiscordLink, cleanBotToken, botTokenHint } from './logic.js';
 
 const CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -32,8 +32,8 @@ Deno.serve(async (req) => {
 
     const webhookUrl = Deno.env.get('DISCORD_WEBHOOK_URL') || '';
     const webhook = parseWebhookUrl(webhookUrl);
-    const botToken = Deno.env.get('DISCORD_BOT_TOKEN') || '';
-    const channelId = (Deno.env.get('DISCORD_CHANNEL_ID') || '').trim();
+    const botToken = cleanBotToken(Deno.env.get('DISCORD_BOT_TOKEN'));
+    const channelId = (Deno.env.get('DISCORD_CHANNEL_ID') || '').trim().replace(/^["'`<#]+|["'`>]+$/g, '');
     const reading = !!(botToken && /^\d{5,25}$/.test(channelId));
 
     let body: Record<string, unknown> = {};
@@ -108,6 +108,7 @@ Deno.serve(async (req) => {
                 webhook,
                 channelId,
                 hasBotToken: !!botToken,
+                tokenHint: botTokenHint(botToken),
                 async discord(path: string, { bot }: { bot: boolean }) {
                     const res = await fetch(DISCORD_API + path, {
                         headers: bot ? { Authorization: `Bot ${botToken}`, 'User-Agent': 'FurZone Lounge (https://github.com/SNUFFLES-boop/FurZone, 1.0)' } : {}

@@ -4564,3 +4564,241 @@ button.lounge-status:disabled {
 .link-check.bad .icon {
     color: var(--bad);
 }
+
+/* ---------------------------------------------------------------- profile: tabs, followers, insights */
+
+.stats .stat {
+    border: 0;
+    background: none;
+    padding: 4px 6px;
+    margin: -4px -6px;
+    border-radius: 10px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transition:
+        background 0.2s ease,
+        transform 0.35s var(--spring);
+}
+
+.stats .stat:hover {
+    background: var(--surface);
+}
+
+.stats .stat:active {
+    transform: scale(0.94);
+}
+
+.profile-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    margin: 0 0 14px;
+    border-radius: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+.profile-tab {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 40px;
+    border: 0;
+    border-radius: 12px;
+    background: none;
+    color: var(--muted);
+    font: 600 14px var(--font);
+    cursor: pointer;
+    transition:
+        background 0.2s ease,
+        color 0.2s ease,
+        transform 0.35s var(--spring);
+}
+
+.profile-tab .icon {
+    width: 17px;
+    height: 17px;
+}
+
+.profile-tab:active {
+    transform: scale(0.95);
+}
+
+.profile-tab.on {
+    color: var(--text);
+    background: var(--grad-soft);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.tile-boops .icon + .icon,
+.tile-boops > .icon:nth-of-type(2) {
+    margin-left: 4px;
+}
+
+.follow-search {
+    margin: 12px 0;
+}
+
+.follow-list .person .chip-btn + .chip-btn {
+    margin-left: -4px;
+}
+
+.insights {
+    display: grid;
+    gap: 18px;
+}
+
+.insight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+@media (min-width: 640px) {
+    .insight-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.insight-card {
+    display: grid;
+    gap: 2px;
+    justify-items: start;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    animation: rise 0.4s var(--ease-out) both;
+}
+
+button.insight-card {
+    cursor: pointer;
+    transition: transform 0.35s var(--spring);
+}
+
+button.insight-card:active {
+    transform: scale(0.96);
+}
+
+.insight-card strong {
+    font: 700 26px/1.1 var(--font-fun);
+}
+
+.insight-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    margin-bottom: 6px;
+    border-radius: 10px;
+    background: var(--grad-soft);
+    color: #f9a8d4;
+}
+
+.insight-icon .icon {
+    width: 18px;
+    height: 18px;
+}
+
+.insight-label {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.insight-sub {
+    color: var(--good);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.insight-section .section-title {
+    margin: 0 0 8px;
+}
+
+.insight-top {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 14px;
+    align-items: center;
+}
+
+.insight-top-text p {
+    margin: 0 0 6px;
+    overflow-wrap: anywhere;
+}
+
+.fan-row {
+    padding: 10px;
+    border-radius: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+.fan-rank {
+    width: 22px;
+    flex: none;
+    text-align: center;
+    font: 700 16px var(--font-fun);
+    color: var(--faint);
+}
+
+.fan-row .name-line {
+    flex: 1;
+    min-width: 0;
+}
+
+.fan-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #f9a8d4;
+    font-weight: 700;
+}
+
+.fan-count .icon {
+    width: 15px;
+    height: 15px;
+}
+
+.small {
+    font-size: 13px;
+}
+
+.follow-list .person {
+    gap: 8px;
+}
+
+.follow-list .person-link {
+    min-width: 0;
+}
+
+.follow-list .name-line {
+    min-width: 0;
+}
+
+.follow-list .name-sub,
+.follow-list .name-top strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.follow-list .chip-btn {
+    flex: none;
+    padding: 0 11px;
+}
+
+/* List rows never grow wider than the screen: long names get "…" instead. */
+.people {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.person-link .name-line {
+    flex: 1;
+}

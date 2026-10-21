@@ -5,6 +5,7 @@ import { captionNode, badges } from './postcard.js';
 import { connectionsSection } from './connect.js';
 import { openExternal } from '../platform.js';
 import { roleBadge, myRank, outranks, staffTools, staffStrip } from '../staff.js';
+import { openFollowLists, renderInsights } from './followers.js';
 
 export function renderProfile(view, ctx, username) {
     const page = h('div', { class: 'page profile' }, spinner());
@@ -16,12 +17,12 @@ export function renderProfile(view, ctx, username) {
             const p = username === app.me.username ? await refreshMe() : await app.backend.profileByUsername(username);
             if (!alive) return;
             if (!p) {
-                page.replaceChildren(emptyState('user', 'No one here', `There's no @${username} on FurZone.`));
+                fill(page, emptyState('user', 'No one here', `There's no @${username} on FurZone.`));
                 return;
             }
             draw(p);
         } catch (e) {
-            page.replaceChildren(h('p', { class: 'form-error pad', text: errorText(e) }));
+            fill(page, h('p', { class: 'form-error pad', text: errorText(e) }));
         }
     }
 
@@ -84,8 +85,31 @@ export function renderProfile(view, ctx, username) {
         const chips = [p.species && h('span', { class: 'pill' }, icon('paw'), p.species), p.pronouns && h('span', { class: 'pill', text: p.pronouns })].filter(Boolean);
 
         const grid = h('div', { class: 'grid' }, spinner());
+        // Posts | Popular | Insights (your own profile only)
+        let tab = 'posts';
+        const TABS = [['posts', 'Posts', 'image'], ['popular', 'Popular', 'flame']].concat(isMe ? [['insights', 'Insights', 'sparkles']] : []);
+        const tabBar = h('div', { class: 'profile-tabs', role: 'tablist' });
+        const drawTabs = () =>
+            fill(
+                tabBar,
+                TABS.map(([v, label, ic]) =>
+                    h('button', { class: 'profile-tab' + (tab === v ? ' on' : ''), role: 'tab', 'aria-selected': String(tab === v), onclick: () => pick(v) }, icon(ic), label)
+                )
+            );
+        function pick(v) {
+            if (tab === v && shown) return;
+            tab = v;
+            shown = false;
+            drawTabs();
+            showPosts();
+        }
+        drawTabs();
+        function openLists(which) {
+            if (isMe || myRank() >= 1) openFollowLists(p, which, () => load());
+            else toast(`Only @${p.username} can see who ${which === 'followers' ? 'follows them' : 'they follow'}.`, 'info');
+        }
         const conns = h('div', { class: 'profile-conns' });
-        page.replaceChildren(
+        fill(page, 
             banner,
             h(
                 'div',
@@ -114,10 +138,11 @@ export function renderProfile(view, ctx, username) {
             h(
                 'div',
                 { class: 'stats' },
-                h('span', null, h('strong', { text: compactCount(p.posts_count) }), ' posts'),
-                h('span', null, followers, ' followers'),
-                h('span', null, h('strong', { text: compactCount(p.following_count) }), ' following')
+                h('button', { class: 'stat', onclick: () => pick('posts') }, h('strong', { text: compactCount(p.posts_count) }), p.posts_count === 1 ? ' post' : ' posts'),
+                h('button', { class: 'stat', onclick: () => openLists('followers') }, followers, p.followers_count === 1 ? ' follower' : ' followers'),
+                h('button', { class: 'stat', onclick: () => openLists('following') }, h('strong', { text: compactCount(p.following_count) }), ' following')
             ),
+            tabBar,
             p.ref_url &&
                 h(
                     'button',
@@ -142,11 +167,22 @@ export function renderProfile(view, ctx, username) {
                           )
                         : h('span', { class: 'conn-line discord' }, icon('discord'), h('span', null, 'Discord · ', h('strong', { text: c.handle || 'connected' })), icon('shieldCheck', 'verified'))
                 );
-                conns.replaceChildren(...items);
+                fill(conns, ...items);
             })
             .catch(() => {});
 
         let shown = false;
+        const tile = (post) =>
+            h(
+                'a',
+                { class: 'tile', href: `#/p/${post.id}`, 'aria-label': post.caption.slice(0, 80) || 'Post' },
+                post.media_type === 'image'
+                    ? h('img', { src: post.media_url, alt: '', loading: 'lazy' })
+                    : post.media_type === 'video'
+                      ? [h('video', { src: post.media_url + '#t=0.1', muted: true, preload: 'metadata', playsinline: true }), h('span', { class: 'tile-badge' }, icon('video'))]
+                      : h('span', { class: 'tile-text', style: { '--h': String(hueOf(post.user.username + post.id)) }, text: post.caption.slice(0, 90) }),
+                h('span', { class: 'tile-boops' }, icon('heart'), compactCount(post.boops), post.views ? [' ', icon('eye'), compactCount(post.views)] : null)
+            );
         function showPosts() {
             if (!isMe && p.is_private && followState !== 'following' && myRank() < 1) {
                 fill(grid, emptyState('lock', 'This account is private', `Follow @${p.username} to see their posts.`));
@@ -154,27 +190,28 @@ export function renderProfile(view, ctx, username) {
             }
             if (shown) return;
             shown = true;
-            app.backend
-                .userPosts(p.id)
+            const want = tab;
+            grid.className = want === 'insights' ? 'insights' : 'grid';
+            fill(grid, spinner());
+            if (want === 'insights') {
+                renderInsights(grid, p, (post) => tile(post)).catch((e) => fill(grid, h('p', { class: 'form-error', text: errorText(e) })));
+                return;
+            }
+            (want === 'popular' ? app.backend.userPopular(p.id) : app.backend.userPosts(p.id))
                 .then((posts) => {
-                    grid.replaceChildren(
-                        ...(posts.length
-                            ? posts.map((post) =>
-                                  h(
-                                      'a',
-                                      { class: 'tile', href: `#/p/${post.id}`, 'aria-label': post.caption.slice(0, 80) || 'Post' },
-                                      post.media_type === 'image'
-                                          ? h('img', { src: post.media_url, alt: '', loading: 'lazy' })
-                                          : post.media_type === 'video'
-                                            ? [h('video', { src: post.media_url + '#t=0.1', muted: true, preload: 'metadata', playsinline: true }), h('span', { class: 'tile-badge' }, icon('video'))]
-                                            : h('span', { class: 'tile-text', style: { '--h': String(hueOf(post.user.username + post.id)) }, text: post.caption.slice(0, 90) }),
-                                      h('span', { class: 'tile-boops' }, icon('heart'), compactCount(post.boops))
-                                  )
-                              )
-                            : [emptyState('image', isMe ? 'Your first post goes here' : 'No posts yet', '', isMe && h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))])
+                    if (tab !== want) return;
+                    fill(
+                        grid,
+                        posts.length
+                            ? posts.map((post, i) => {
+                                  const t = tile(post);
+                                  if (want === 'popular' && i < 3 && post.boops) t.append(h('span', { class: `tile-rank rank-${i + 1}`, text: '#' + (i + 1) }));
+                                  return t;
+                              })
+                            : emptyState('image', isMe ? 'Your first post goes here' : 'No posts yet', '', isMe && h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))
                     );
                 })
-                .catch((e) => grid.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+                .catch((e) => fill(grid, h('p', { class: 'form-error', text: errorText(e) })));
         }
         if (isMe) showPosts();
     }

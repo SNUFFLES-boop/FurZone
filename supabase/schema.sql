@@ -347,7 +347,9 @@ create policy comments_delete on public.comments for delete to authenticated usi
 );
 
 drop policy if exists follows_read on public.follows;
-create policy follows_read on public.follows for select to authenticated using (true);
+-- Who follows whom is private: you see your own followers and who you follow (staff can see all, to moderate).
+create policy follows_read on public.follows for select to authenticated
+  using (follower_id = auth.uid() or followee_id = auth.uid() or public.staff_rank(auth.uid()) >= 1);
 drop policy if exists follows_insert_own on public.follows;
 create policy follows_insert_own on public.follows for insert to authenticated
   with check (follower_id = auth.uid() and not public.is_blocked(auth.uid(), followee_id)
@@ -359,7 +361,9 @@ drop policy if exists follow_requests_delete on public.follow_requests;
 create policy follow_requests_delete on public.follow_requests for delete to authenticated
   using (requester_id = auth.uid() or target_id = auth.uid());
 drop policy if exists follows_delete_own on public.follows;
-create policy follows_delete_own on public.follows for delete to authenticated using (follower_id = auth.uid());
+-- Unfollow someone, or remove one of your own followers.
+create policy follows_delete_own on public.follows for delete to authenticated
+  using (follower_id = auth.uid() or followee_id = auth.uid());
 
 -- Your block list is yours alone.
 drop policy if exists blocks_own on public.blocks;
@@ -1376,6 +1380,42 @@ language sql stable security invoker set search_path = public as $$
 $$;
 revoke all on function public.explore(text, text, text, int, int) from public, anon;
 grant execute on function public.explore(text, text, text, int, int) to authenticated;
+
+-- ---------------------------------------------------------------- your own stats (profile -> Insights)
+
+-- Only ever about the person asking. Totals, this week's new followers and hearts, and the people who heart and
+-- comment on your posts the most (not counting anyone blocked either way).
+create or replace function public.my_insights() returns jsonb
+language sql stable security definer set search_path = public as $$
+  with me as (select auth.uid() as id),
+  mine as (select p.* from posts p, me where p.user_id = me.id),
+  fans as (
+    select x.user_id, count(*) as n from (
+      select b.user_id from boops b join mine m on m.id = b.post_id where b.created_at > now() - interval '30 days'
+      union all
+      select c.user_id from comments c join mine m on m.id = c.post_id where c.created_at > now() - interval '30 days'
+    ) x, me
+    where x.user_id <> me.id and not is_blocked(me.id, x.user_id) and not is_banned(x.user_id)
+    group by x.user_id order by n desc limit 5
+  )
+  select jsonb_build_object(
+    'posts', (select count(*) from mine),
+    'followers', (select count(*) from follows f, me where f.followee_id = me.id),
+    'following', (select count(*) from follows f, me where f.follower_id = me.id),
+    'hearts', (select coalesce(sum(boops_count), 0) from mine),
+    'views', (select coalesce(sum(views_count), 0) from mine),
+    'comments', (select coalesce(sum(comments_count), 0) from mine),
+    'followers_week', (select count(*) from follows f, me where f.followee_id = me.id and f.created_at > now() - interval '7 days'),
+    'hearts_week', (select count(*) from boops b join mine m on m.id = b.post_id where b.created_at > now() - interval '7 days'),
+    'top_fans', coalesce((select jsonb_agg(jsonb_build_object('id', pr.id, 'username', pr.username, 'display_name', pr.display_name,
+                                             'avatar_path', pr.avatar_path, 'species', pr.species, 'pronouns', pr.pronouns, 'n', fans.n)
+                                   order by fans.n desc)
+                            from fans join profiles pr on pr.id = fans.user_id), '[]'::jsonb)
+  )
+  where auth.uid() is not null
+$$;
+revoke all on function public.my_insights() from public, anon;
+grant execute on function public.my_insights() to authenticated;
 
 -- Search posts by words in the caption or a #tag.
 create or replace function public.search_posts(p_query text, p_limit int default 30)

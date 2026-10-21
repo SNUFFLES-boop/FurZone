@@ -267,7 +267,7 @@ await test('blocking someone removes their posts', async () => {
 // Text that should never reach the screen (a value that was missing, shown as a word).
 async function noJunkText(where) {
     const t = await page.locator('body').innerText();
-    assert.doesNotMatch(t, /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]|falsefalse/, 'junk text on ' + where);
+    assert.doesNotMatch(t, /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]|^\s*(false|true)\s*$/m, 'junk text on ' + where);
 }
 
 await test('For You: categories and post search', async () => {
@@ -326,6 +326,31 @@ await test('inbox: activity, then messages with chats and requests', async () =>
     await page.getByRole('button', { name: 'Unarchive' }).click();
     await toastSays('Moved back to Chats');
     await page.locator('.tabbar .nav-inbox .badge').waitFor({ state: 'hidden' });
+});
+
+await test('profile: popular posts, insights, and your followers list', async () => {
+    await page.locator('.tabbar .nav-me').click();
+    await page.locator('.profile-tab', { hasText: 'Popular' }).waitFor();
+    await noJunkText('own profile');
+    await page.locator('.profile-tab', { hasText: 'Popular' }).click();
+    await page.locator('.grid .tile').first().waitFor();
+    await page.locator('.profile-tab', { hasText: 'Insights' }).click();
+    await page.locator('.insight-card', { hasText: 'Followers' }).waitFor();
+    await page.locator('.insight-card', { hasText: 'Hearts' }).waitFor();
+    await page.locator('.fan-row', { hasText: 'Mochi' }).waitFor();
+    await noJunkText('insights');
+    await shot('10b-insights');
+    await page.locator('.stats .stat', { hasText: 'follower' }).click();
+    await page.locator('.follow-list .person', { hasText: 'Mochi' }).waitFor();
+    await shot('10c-followers');
+    await page.getByRole('tab', { name: /Following/ }).click();
+    await page.locator('.follow-list').waitFor();
+    await page.getByRole('tab', { name: /Followers/ }).click();
+    const mochi = page.locator('.follow-list .person', { hasText: 'Mochi' });
+    await mochi.getByRole('button', { name: 'Remove' }).click();
+    await page.getByRole('button', { name: 'Remove', exact: true }).last().click();
+    await toastSays('Removed @mochibun');
+    await page.getByRole('dialog', { name: 'Your people' }).getByLabel('Close').click();
 });
 
 await test('the Lounge: chat shared with Discord', async () => {

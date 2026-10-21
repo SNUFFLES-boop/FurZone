@@ -1,4 +1,4 @@
-import { h, icon, toast, errorText, withBusy, field } from '../ui.js';
+import { h, icon, toast, errorText, withBusy, field, fill } from '../ui.js';
 import { app, refreshMe } from '../state.js';
 import { mediaKind, prepareImage, checkVideo } from '../format.js';
 import { extractTags } from '../backend/shape.js';
@@ -21,7 +21,7 @@ export function renderCreate(view, ctx) {
     const postBtn = h('button', { class: 'btn primary block lg', type: 'submit' }, icon('paw'), 'Post');
 
     function drawDrop() {
-        drop.replaceChildren();
+        fill(drop);
         drop.classList.toggle('has-media', !!file);
         if (!file) {
             drop.append(
@@ -66,7 +66,7 @@ export function renderCreate(view, ctx) {
         if (!f) return;
         try {
             const k = mediaKind(f);
-            drop.replaceChildren(h('div', { class: 'spinner' }));
+            fill(drop, h('div', { class: 'spinner' }));
             const ready = k === 'image' ? await prepareImage(f) : await checkVideo(f);
             if (previewUrl) URL.revokeObjectURL(previewUrl);
             file = ready;
@@ -81,7 +81,7 @@ export function renderCreate(view, ctx) {
     caption.oninput = () => {
         counter.textContent = `${caption.value.length} / 1000`;
         const tags = extractTags(caption.value);
-        tagsLine.replaceChildren(...tags.map((t) => h('span', { class: 'tag-chip sm', text: '#' + t })));
+        fill(tagsLine, ...tags.map((t) => h('span', { class: 'tag-chip sm', text: '#' + t })));
     };
 
     const quick = h(

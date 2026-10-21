@@ -63,7 +63,7 @@ export function renderInbox(view, ctx, tab = 'activity') {
     // ---------------------------------------------------------------- activity
 
     async function activity() {
-        body.replaceChildren(spinner());
+        fill(body, spinner());
         try {
             const [items, requests] = await Promise.all([app.backend.notifications(), app.backend.followRequests().catch(() => [])]);
             if (!alive) return;
@@ -99,7 +99,7 @@ export function renderInbox(view, ctx, tab = 'activity') {
                 ctx.setUnread();
             }
         } catch (e) {
-            body.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+            fill(body, h('p', { class: 'form-error', text: errorText(e) }));
         }
     }
 
@@ -197,7 +197,7 @@ export function renderInbox(view, ctx, tab = 'activity') {
             );
         }
         async function loadThreads() {
-            list.replaceChildren(spinner());
+            fill(list, spinner());
             try {
                 const rows = await app.backend.threads(lastBox);
                 if (!alive) return;
@@ -208,7 +208,7 @@ export function renderInbox(view, ctx, tab = 'activity') {
                 }[lastBox];
                 fill(list, rows.length ? rows.map((t, i) => threadRow(t, i)) : emptyState(...empty));
             } catch (e) {
-                list.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+                fill(list, h('p', { class: 'form-error', text: errorText(e) }));
             }
         }
         function threadRow(t, i) {
@@ -305,7 +305,7 @@ export function renderInbox(view, ctx, tab = 'activity') {
             const r = await app.backend.refreshNews();
             if (alive && r && r.added) draw(await app.backend.news());
         } catch (e) {
-            list.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+            fill(list, h('p', { class: 'form-error', text: errorText(e) }));
         }
     }
 
@@ -359,7 +359,7 @@ function newMessage(ctx) {
             input.oninput = async () => {
                 const q = input.value.trim();
                 const mine = ++seq;
-                if (!q) return results.replaceChildren();
+                if (!q) return fill(results);
                 try {
                     const people = (await app.backend.searchUsers(q)).filter((p) => p.id !== app.me.id);
                     if (mine !== seq) return;
@@ -372,7 +372,7 @@ function newMessage(ctx) {
                             : h('p', { class: 'muted pad', text: `No one matches "${q}".` })
                     );
                 } catch (e) {
-                    results.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+                    fill(results, h('p', { class: 'form-error', text: errorText(e) }));
                 }
             };
             body.append(h('label', { class: 'search-box' }, icon('search'), input), results);

@@ -1,6 +1,6 @@
 // One post, shown full-height: the media (or a colourful card for text posts), who posted it, the caption and
 // the action rail. Used by the feed and the single-post page.
-import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump, flagPill } from '../ui.js';
+import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump, flagPill, fill } from '../ui.js';
 import { look } from '../look.js';
 import { captionParts, compactCount, timeAgo, hueOf } from '../format.js';
 import { app, savePref } from '../state.js';
@@ -209,7 +209,7 @@ export function renderSlide(post, { onRemoved } = {}) {
             savePref('muted', !app.muted);
             for (const v of document.querySelectorAll('.slide-video')) v.muted = app.muted;
             for (const b of document.querySelectorAll('.mute-btn')) {
-                b.replaceChildren(icon(app.muted ? 'mute' : 'volume'));
+                fill(b, icon(app.muted ? 'mute' : 'volume'));
                 b.setAttribute('aria-label', app.muted ? 'Unmute' : 'Mute');
             }
         };
@@ -444,7 +444,7 @@ export function openComments(post, onChange) {
             };
 
             function setTitle() {
-                title.replaceChildren('Comments', h('span', { class: 'count-pill', text: compactCount(items.length) }));
+                fill(title, 'Comments', h('span', { class: 'count-pill', text: compactCount(items.length) }));
             }
 
             function sorted() {
@@ -458,14 +458,14 @@ export function openComments(post, onChange) {
             }
 
             function draw() {
-                sortBar.replaceChildren(
+                fill(sortBar, 
                     segmented(COMMENT_SORTS, commentSort, (v) => {
                         commentSort = v;
                         draw();
                     }, 'Sort comments')
                 );
                 setTitle();
-                list.replaceChildren(
+                fill(list, 
                     ...(items.length ? sorted().map((c, i) => row(c, i)) : [h('div', { class: 'comments-empty' }, icon('comment'), h('p', { text: 'No comments yet. Be the first!' }))])
                 );
             }
@@ -553,7 +553,7 @@ export function openComments(post, onChange) {
                     items = rows.map((c) => ({ likes: 0, liked: false, ...c }));
                     draw();
                 })
-                .catch((e) => list.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+                .catch((e) => fill(list, h('p', { class: 'form-error', text: errorText(e) })));
 
             form.onsubmit = (e) => {
                 e.preventDefault();

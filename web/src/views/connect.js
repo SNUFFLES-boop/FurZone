@@ -1,6 +1,6 @@
 // Linked accounts: Discord (Discord's own login proves it) and VRChat (a code in your VRChat bio, checked
 // by the server). The app never writes a connection itself — the server does, after checking.
-import { h, icon, toast, errorText, withBusy, field, sheet, confirmDialog, spinner } from '../ui.js';
+import { h, icon, toast, errorText, withBusy, field, sheet, confirmDialog, spinner, fill } from '../ui.js';
 import { app, refreshMe } from '../state.js';
 import { vrchatIdFrom } from '../format.js';
 import { goToDiscord } from './login.js';
@@ -14,11 +14,11 @@ export function connectionsSection(onChange) {
         try {
             list = await app.backend.connections(app.me.id);
         } catch (e) {
-            box.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+            fill(box, h('p', { class: 'form-error', text: errorText(e) }));
             return;
         }
         const find = (p) => list.find((c) => c.provider === p);
-        box.replaceChildren(row('discord', 'Discord', find('discord')), row('vrchat', 'VRChat', find('vrchat')));
+        fill(box, row('discord', 'Discord', find('discord')), row('vrchat', 'VRChat', find('vrchat')));
     }
 
     function row(provider, label, conn) {
@@ -114,7 +114,7 @@ export function vrchatFlow(onDone) {
                             toast(errorText(e), 'error');
                         }
                     });
-                steps.replaceChildren(
+                fill(steps, 
                     h('div', { class: 'step' }, h('span', { class: 'step-n', text: '1' }), h('div', null, h('strong', { text: 'Your VRChat profile' }), h('p', { class: 'muted', text: 'On vrchat.com, open your profile and copy the address from the address bar.' }))),
                     field('Profile link or user id', input),
                     help,
@@ -150,7 +150,7 @@ export function vrchatFlow(onDone) {
                             msg.textContent = errorText(e);
                         }
                     });
-                steps.replaceChildren(
+                fill(steps, 
                     h('div', { class: 'step' }, h('span', { class: 'step-n', text: '2' }), h('div', null, h('strong', { text: 'Add this code to your VRChat bio' }), h('p', { class: 'muted', text: 'vrchat.com → your profile → Edit → Bio. Paste it anywhere and save. It expires in an hour.' }))),
                     h('div', { class: 'code-box' }, h('code', { text: code }), copy),
                     h('button', { type: 'button', class: 'link-btn', onclick: () => openExternal('https://vrchat.com/home') }, icon('link'), 'Open vrchat.com'),

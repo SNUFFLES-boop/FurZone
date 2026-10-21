@@ -43,6 +43,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const boops = new Set();
     const comments = [];
     const follows = new Set();
+    const followAt = new Map(); // `${follower}:${followee}` -> when
+    const boopAt = new Map(); // `${user}:${post}` -> when
     const blocks = new Set(); // `${blocker}:${blocked}`
     const notifications = [];
     const commentLikes = new Set(); // `${user}:${comment}`
@@ -153,6 +155,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     function doFollow(a, b) {
         if (a === b || follows.has(`${a}:${b}`) || blocked(a, b)) return false;
         follows.add(`${a}:${b}`);
+        followAt.set(`${a}:${b}`, iso(now()));
         profiles.get(a).following_count++;
         profiles.get(b).followers_count++;
         notify(b, a, 'follow');
@@ -163,6 +166,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         const key = `${uid}:${p.id}`;
         if (boops.has(key)) return;
         boops.add(key);
+        boopAt.set(key, iso(now()));
         p.boops_count++;
         notify(p.user_id, uid, 'boop', p.id);
     }
@@ -856,6 +860,70 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             return [...followRequests]
                 .filter(([k]) => k.endsWith(':' + a))
                 .map(([k, at]) => ({ created_at: at, user: P(profiles.get(k.split(':')[0])) }));
+        },
+        async followers(userId) {
+            const a = me();
+            if (userId !== a && rank(a) < 1) return [];
+            return delay(
+                [...follows]
+                    .filter((k) => k.endsWith(':' + userId))
+                    .map((k) => ({ created_at: followAt.get(k) || iso(now() - 3 * 24 * HOUR), user: P(profiles.get(k.split(':')[0])) }))
+                    .sort((x, y) => (x.created_at < y.created_at ? 1 : -1))
+            );
+        },
+        async following(userId) {
+            const a = me();
+            if (userId !== a && rank(a) < 1) return [];
+            return delay(
+                [...follows]
+                    .filter((k) => k.startsWith(userId + ':'))
+                    .map((k) => ({ created_at: followAt.get(k) || iso(now() - 3 * 24 * HOUR), user: P(profiles.get(k.split(':')[1])) }))
+                    .sort((x, y) => (x.created_at < y.created_at ? 1 : -1))
+            );
+        },
+        async removeFollower(userId) {
+            const a = me();
+            if (follows.delete(`${userId}:${a}`)) {
+                profiles.get(userId).following_count--;
+                profiles.get(a).followers_count--;
+            }
+        },
+        async myInsights() {
+            const a = me();
+            const mine = posts.filter((p) => p.user_id === a);
+            const ids = new Set(mine.map((p) => p.id));
+            const week = now() - 7 * 24 * HOUR;
+            const fanCount = new Map();
+            for (const k of boops) {
+                const [u, pid] = k.split(':');
+                if (ids.has(pid) && u !== a && !blocked(a, u)) fanCount.set(u, (fanCount.get(u) || 0) + 1);
+            }
+            for (const c of comments) if (ids.has(c.post_id) && c.user_id !== a && !blocked(a, c.user_id)) fanCount.set(c.user_id, (fanCount.get(c.user_id) || 0) + 1);
+            const followerKeys = [...follows].filter((k) => k.endsWith(':' + a));
+            return delay({
+                posts: mine.length,
+                followers: followerKeys.length,
+                following: [...follows].filter((k) => k.startsWith(a + ':')).length,
+                hearts: mine.reduce((t, p) => t + p.boops_count, 0),
+                views: mine.reduce((t, p) => t + (p.views_count || 0), 0),
+                comments: mine.reduce((t, p) => t + p.comments_count, 0),
+                followers_week: followerKeys.filter((k) => Date.parse(followAt.get(k) || 0) > week).length,
+                hearts_week: [...boops].filter((k) => ids.has(k.split(':')[1]) && Date.parse(boopAt.get(k) || 0) > week).length,
+                top_fans: [...fanCount.entries()]
+                    .sort((x, y) => y[1] - x[1])
+                    .slice(0, 5)
+                    .map(([u, n]) => ({ ...P(profiles.get(u)), n }))
+            });
+        },
+        async userPopular(userId) {
+            me();
+            return delay(
+                posts
+                    .filter((p) => p.user_id === userId && canSee(p))
+                    .sort((x, y) => y.boops_count - x.boops_count || (y.views_count || 0) - (x.views_count || 0) || (x.created_at < y.created_at ? 1 : -1))
+                    .slice(0, 30)
+                    .map(row)
+            );
         },
         async followRequestCount() {
             const a = me();

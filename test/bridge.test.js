@@ -1,7 +1,7 @@
 // The Discord bridge and VRChat news logic, with Discord and Steam replaced by fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWebhookUrl, webhookName, webhookPayload, plainText, discordToRows, newestId, syncFromDiscord, checkDiscordLink } from '../supabase/functions/furzone-lounge/logic.js';
+import { parseWebhookUrl, webhookName, webhookPayload, plainText, discordToRows, newestId, syncFromDiscord, checkDiscordLink, cleanBotToken, botTokenHint } from '../supabase/functions/furzone-lounge/logic.js';
 import { cleanSteamText, parseSteamNews, newsWebhookPayload, refreshNews } from '../supabase/functions/vrchat-news/logic.js';
 
 const TOKEN = 'abcDEF123_-abcDEF123_-abcDEF123';
@@ -172,4 +172,13 @@ test('Discord link check: says exactly what is wrong', async () => {
 
     r = await checkDiscordLink({ webhook: null, channelId: '', hasBotToken: false, discord: fake(good) });
     assert.equal(r.filter((c) => !c.ok).length, 2);
+});
+
+test('bot token: cleaned up, and wrong kinds of values are named', () => {
+    const real = 'MTMwMDAwMDAwMDAwMDAwMDAwMQ.Gabcde.abcdefghijklmnopqrstuvwxyz0123456789AB';
+    assert.equal(cleanBotToken(`  "Bot ${real}"\n`), real);
+    assert.equal(botTokenHint(real), '');
+    assert.match(botTokenHint('1300000000000000001'), /ID/);
+    assert.match(botTokenHint('a'.repeat(64)), /Public Key/);
+    assert.match(botTokenHint('AbCdEfGhIjKlMnOpQrStUvWxYz012345'), /Client Secret/);
 });

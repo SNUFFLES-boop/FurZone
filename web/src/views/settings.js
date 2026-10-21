@@ -186,7 +186,7 @@ function blockedList() {
         app.backend
             .blocked()
             .then((people) =>
-                list.replaceChildren(
+                fill(list, 
                     ...(people.length
                         ? people.map((p) => {
                               const btn = h('button', { class: 'chip-btn', text: 'Unblock' });
@@ -206,7 +206,7 @@ function blockedList() {
                         : [h('p', { class: 'muted', text: "You haven't blocked anyone." })])
                 )
             )
-            .catch((e) => list.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+            .catch((e) => fill(list, h('p', { class: 'form-error', text: errorText(e) })));
     });
 }
 

@@ -1,5 +1,5 @@
 import { SERVER_CONFIGURED } from '../config.js';
-import { h, icon, toast, errorText, withBusy, field, sheet } from '../ui.js';
+import { h, icon, toast, errorText, withBusy, field, sheet, fill } from '../ui.js';
 import { logo } from '../icons.js';
 import { validUsername, passwordStrength } from '../format.js';
 import { app } from '../state.js';
@@ -50,7 +50,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
     reveal.onclick = () => {
         const show = password.type === 'password';
         password.type = show ? 'text' : 'password';
-        reveal.replaceChildren(icon(show ? 'eyeOff' : 'eye'));
+        fill(reveal, icon(show ? 'eyeOff' : 'eye'));
         reveal.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
     };
 
@@ -98,7 +98,7 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
 
     function setMode(m) {
         mode = m;
-        tabs.replaceChildren(
+        fill(tabs, 
             ...[
                 ['signup', 'Create account'],
                 ['login', 'Log in']
