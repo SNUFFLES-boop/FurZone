@@ -59,9 +59,16 @@ jobs:
           npm run build
       - name: Click-through UI tests
         run: |
-          npm i --no-save playwright
+          npm i --no-save playwright@1.56.0
           npx playwright install --with-deps chromium
-          node test/ui.test.mjs
+          set +e
+          node test/ui.test.mjs > ui-test.log 2>&1
+          status=$?
+          cat ui-test.log
+          if [ $status -ne 0 ]; then
+            echo "::error title=Click-through UI tests::$(grep -A 25 'not ok' ui-test.log | head -n 40 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+          fi
+          exit $status
       - name: Android update checks
         run: |
           mkdir -p /tmp/vd
