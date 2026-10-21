@@ -10,7 +10,6 @@ export const platform = android ? 'android' : webview2 ? 'windows' : 'web';
 let seq = 0;
 const pending = new Map();
 const progressListeners = new Set();
-let shareWaiter = null;
 
 function onNativeMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
@@ -19,10 +18,6 @@ function onNativeMessage(msg) {
         pending.delete(msg.id);
         if (msg.error) reject(new Error(msg.error));
         else resolve(msg.value);
-    } else if (msg.type === 'share') {
-        const fn = shareWaiter;
-        shareWaiter = null;
-        if (fn) fn(msg.state || 'error', msg.message || '');
     } else if (msg.type === 'update') {
         for (const fn of progressListeners) fn(msg.state, msg.percent || 0, msg.message || '');
     }
@@ -95,29 +90,6 @@ export function shareNative(text, pkg = '') {
     } catch {
         return 'unsupported';
     }
-}
-
-/**
- * Android: download the post's picture or video, then share the file (with the text) to an app or the share
- * menu. Resolves 'ok' | 'missing' | 'error' | 'unsupported'.
- */
-export function shareMediaNative(url, mime, text, pkg = '') {
-    if (!android || typeof android.shareMedia !== 'function') return Promise.resolve('unsupported');
-    return new Promise((resolve) => {
-        shareWaiter = (state) => resolve(state);
-        try {
-            android.shareMedia(String(url), String(mime), String(text), String(pkg || ''));
-        } catch {
-            shareWaiter = null;
-            resolve('unsupported');
-        }
-        setTimeout(() => {
-            if (shareWaiter) {
-                shareWaiter = null;
-                resolve('error');
-            }
-        }, 120000);
-    });
 }
 
 export function onUpdateProgress(fn) {

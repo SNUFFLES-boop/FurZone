@@ -55,7 +55,7 @@ export function updateSection() {
         if (platform === 'web') status = `Version ${VERSION}. Updates arrive automatically in the browser.`;
         else if (s.checking) status = 'Checking for updates…';
         else if (s.phase === 'downloading') status = `Downloading update… ${s.percent}%`;
-        else if (s.phase === 'installing') status = 'Installing…';
+        else if (s.phase === 'installing') status = platform === 'android' ? 'Tap Update on the Android screen to finish.' : 'Installing…';
         else if (s.error) status = s.error;
         else if (s.info && s.info.available) status = `Version ${s.info.version} is available.`;
         else if (s.info) status = `You're up to date (${VERSION}).`;

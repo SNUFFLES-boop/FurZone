@@ -336,13 +336,6 @@ export function likeAnimation(button, liking) {
         setTimeout(() => spark.remove(), 700);
     }
     heartFloat(button, 3);
-    if (look().haptics && navigator.vibrate) {
-        try {
-            navigator.vibrate(12);
-        } catch {
-            // no vibration motor or not allowed
-        }
-    }
 }
 
 /** A caption that folds after 3 lines, with "more" to open it. */

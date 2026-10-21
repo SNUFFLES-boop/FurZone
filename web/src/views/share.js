@@ -1,10 +1,10 @@
 // The Share menu for a post: inside FurZone (send in a message, post in the Lounge), other apps (Discord, X,
 // Instagram, Facebook, Reddit, Bluesky, Threads, Telegram, WhatsApp, Messenger, Tumblr), copy, or the phone's
-// own share menu. On Android, apps that are installed open directly; Instagram gets the picture or video itself.
+// own share menu. On Android, apps that are installed open directly.
 import { h, icon, avatar, fill, toast, sheet, errorText, withBusy } from '../ui.js';
 import { app } from '../state.js';
 import { GITHUB_REPO } from '../config.js';
-import { platform, openExternal, shareNative, shareMediaNative } from '../platform.js';
+import { platform, openExternal, shareNative } from '../platform.js';
 
 export const APP_LINK = `https://github.com/${GITHUB_REPO}/releases/latest`;
 
@@ -51,28 +51,15 @@ async function copy(text, what = 'Copied') {
     }
 }
 
-function mimeOf(post) {
-    const ext = String(post.media_path || '').split('.').pop().toLowerCase();
-    return (
-        { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' }[ext] ||
-        (post.media_type === 'video' ? 'video/mp4' : 'image/jpeg')
-    );
-}
-
 async function shareTo(target, post) {
     const [key, label, pkg, , web, site] = target;
     const t = texts(post);
-    // Android: open the app directly. Instagram (and the others, when there's a picture or video) get the file.
-    if (platform === 'android') {
-        let state;
-        if (post.media_url && (key === 'instagram' || key === 'discord' || key === 'messenger' || key === 'whatsapp' || key === 'telegram')) {
-            toast(`Getting the ${post.media_type === 'video' ? 'video' : 'picture'} ready…`, 'info', 2500);
-            state = await shareMediaNative(post.media_url, mimeOf(post), t.text, pkg);
-        } else {
-            state = shareNative(t.text, pkg);
-        }
+    // Android: open the app directly with the text. (Instagram only takes pictures and videos, so for Instagram
+    // the text is copied and the app opens.)
+    if (platform === 'android' && key !== 'instagram') {
+        const state = shareNative(t.text, pkg);
         if (state === 'ok') return;
-        if (state === 'missing') toast(`${label} isn't installed, so it opens on the web.`, 'info');
+        if (state === 'missing' && web) toast(`${label} isn't installed, so it opens on the web.`, 'info');
     }
     if (web) return openExternal(web(t));
     await copy(t.text, `Copied. Paste it in ${label}.`);
@@ -167,10 +154,7 @@ export function openShare(post) {
                 { class: 'share-grid' },
                 tile('copy', 'Copy', '#475569', () => copy(t.text)),
                 tile('more', 'More…', '#475569', async () => {
-                    if (platform === 'android') {
-                        const state = post.media_url ? await shareMediaNative(post.media_url, mimeOf(post), t.text, '') : shareNative(t.text, '');
-                        if (state === 'ok') return;
-                    }
+                    if (platform === 'android' && shareNative(t.text, '') === 'ok') return;
                     try {
                         if (navigator.share) return await navigator.share({ title: t.title, text: t.text });
                     } catch {

@@ -61,9 +61,7 @@ final class Updater {
         PackageInstaller.SessionParams params =
                 new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(activity.getPackageName());
-        if (Build.VERSION.SDK_INT >= 31) {
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
-        }
+        // Android always asks you before installing an update (the app never installs anything by itself).
         int sessionId = -1;
         try {
             sessionId = installer.createSession(params);

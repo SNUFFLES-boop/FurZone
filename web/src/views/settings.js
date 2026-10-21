@@ -145,7 +145,6 @@ export function renderSettings(view) {
                     L.upload,
                     (v) => setLook({ upload: v })
                 ),
-                toggle('heart', 'Vibrate when I like something', null, L.haptics, (on) => setLook({ haptics: on })),
                 toggle('volume', 'Play videos with sound', null, !app.muted, (on) => savePref('muted', !on))
             ),
             myRank() >= 1 &&

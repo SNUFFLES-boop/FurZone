@@ -126,7 +126,7 @@ await test('front page: new like button, liked by, popular, details and the shar
     await slide.locator('.liked-by').click();
     await page.locator('.sheet .person').first().waitFor();
     await page.getByRole('button', { name: 'Close' }).click();
-    await page.locator('.scrim').waitFor({ state: 'detached' });
+    await page.waitForFunction(() => !document.querySelector('.scrim'));
     // Post details.
     await slide.getByRole('button', { name: 'More' }).click();
     await page.getByRole('button', { name: 'Post details' }).click();
@@ -134,7 +134,7 @@ await test('front page: new like button, liked by, popular, details and the shar
     await page.locator('.detail-row', { hasText: 'Posted' }).waitFor();
     await noJunkText('post details');
     await page.getByRole('dialog', { name: 'Post details' }).getByLabel('Close').click();
-    await page.locator('.scrim').waitFor({ state: 'detached' });
+    await page.waitForFunction(() => !document.querySelector('.scrim'));
     // Share menu.
     await slide.getByRole('button', { name: 'Share' }).click();
     for (const app of ['Discord', 'X', 'Instagram', 'Facebook', 'Reddit', 'WhatsApp', 'Copy', 'Lounge']) {
@@ -231,10 +231,14 @@ await test('video player: seek bar, full screen, skip, speed, fit, back to the f
     await toastSays('Posted!');
     await page.locator('.slide.wide-video').first().waitFor();
     await page.locator('.tabbar .nav-home').click();
-    const slide = page.locator('.slides .slide.wide-video').first();
+    await page.locator('.feed .cat-row').waitFor();
+    const slide = page.locator('.feed .slides .slide.wide-video').first();
     await slide.waitFor();
     // Wide videos fit instead of being cut off, and the buttons sit below the category chips.
-    assert.equal(await slide.locator('video').evaluate((v) => getComputedStyle(v).objectFit), 'contain');
+    await page.waitForFunction(() => {
+        const v = document.querySelector('.feed .slide.wide-video video');
+        return v && getComputedStyle(v).objectFit === 'contain';
+    });
     const tools = await slide.locator('.video-tools').boundingBox();
     const chips = await page.locator('.cat-row').boundingBox();
     assert.ok(tools.y >= chips.y + chips.height, 'sound/full screen buttons are below the chips');

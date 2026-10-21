@@ -1,5 +1,5 @@
 // How the app looks and behaves: colour theme, animated background, motion, text size, video autoplay,
-// upload and video quality, and little vibrations on likes.
+// upload and video quality.
 // Saved on this device only (nothing about it goes to the server).
 
 export const THEMES = {
@@ -32,7 +32,7 @@ export const TEXT_SIZES = [
     ['huge', 'Huge', 1.22]
 ];
 
-const DEFAULTS = { theme: 'sunset', background: 'paws', amount: 'some', motion: 'full', text: 'normal', autoplay: true, upload: 'best', video: 'best', haptics: true };
+const DEFAULTS = { theme: 'sunset', background: 'paws', amount: 'some', motion: 'full', text: 'normal', autoplay: true, upload: 'best', video: 'best' };
 const KEY = 'furzone.look';
 const listeners = new Set();
 let current = load();
@@ -49,7 +49,6 @@ function load() {
         if (typeof saved.autoplay === 'boolean') out.autoplay = saved.autoplay;
         if (saved.upload === 'standard' || saved.upload === 'best') out.upload = saved.upload;
         if (saved.video === 'saver' || saved.video === 'best') out.video = saved.video;
-        if (typeof saved.haptics === 'boolean') out.haptics = saved.haptics;
         return out;
     } catch {
         return { ...DEFAULTS };

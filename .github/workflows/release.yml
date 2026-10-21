@@ -139,7 +139,7 @@ jobs:
             git log -1 --format=%s "$GITHUB_SHA"
             echo
             echo "Android: download FurZone.apk on your phone. Windows: run FurZone_Setup.exe."
-            echo "Already installed? The app updates itself."
+            echo "Already installed? Open FurZone and tap Update in Settings (Android asks you to confirm)."
             echo
             echo "sha256 FurZone.apk: $(sha256sum FurZone.apk | cut -d' ' -f1)"
             echo "sha256 FurZone_Setup.exe: $(sha256sum FurZone_Setup.exe | cut -d' ' -f1)"

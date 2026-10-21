@@ -20,13 +20,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -209,101 +204,6 @@ public class MainActivity extends Activity {
         } catch (RuntimeException e) {
             return "error";
         }
-    }
-
-    /** Only pictures and videos from our own storage are downloaded for sharing. */
-    static boolean shareableMedia(Uri uri) {
-        if (uri == null || !"https".equals(uri.getScheme()) || uri.getHost() == null) {
-            return false;
-        }
-        String host = uri.getHost().toLowerCase(Locale.ROOT);
-        String path = uri.getPath() == null ? "" : uri.getPath();
-        return (host.endsWith(".supabase.co") || host.endsWith(".supabase.in"))
-                && path.startsWith("/storage/v1/object/public/media/") && !path.contains("..");
-    }
-
-    static String extFor(String mime) {
-        switch (mime == null ? "" : mime) {
-            case "image/png": return ".png";
-            case "image/webp": return ".webp";
-            case "image/gif": return ".gif";
-            case "video/mp4": return ".mp4";
-            case "video/webm": return ".webm";
-            case "video/quicktime": return ".mov";
-            case "image/jpeg": return ".jpg";
-            default: return null;
-        }
-    }
-
-    /** Downloads the post's picture or video (max 50 MB) and shares the file, with the text. */
-    void shareMedia(final String url, final String mime, final String text, final String pkg) {
-        final Uri uri = Uri.parse(url);
-        final String ext = extFor(mime);
-        if (!shareableMedia(uri) || ext == null) {
-            sendToPage("{\"type\":\"share\",\"state\":\"error\"}");
-            return;
-        }
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                String state = "error";
-                HttpURLConnection conn = null;
-                try {
-                    File dir = ShareProvider.folder(MainActivity.this);
-                    File[] old = dir.listFiles();
-                    if (old != null) {
-                        for (File f : old) {
-                            f.delete();
-                        }
-                    }
-                    File out = new File(dir, "furzone_" + System.currentTimeMillis() + ext);
-                    conn = (HttpURLConnection) new URL(uri.toString()).openConnection();
-                    conn.setConnectTimeout(15000);
-                    conn.setReadTimeout(30000);
-                    conn.setInstanceFollowRedirects(false);
-                    if (conn.getResponseCode() != 200) {
-                        throw new IOException("HTTP " + conn.getResponseCode());
-                    }
-                    long total = 0;
-                    try (InputStream in = conn.getInputStream(); OutputStream os = new FileOutputStream(out)) {
-                        byte[] buf = new byte[64 * 1024];
-                        int n;
-                        while ((n = in.read(buf)) > 0) {
-                            total += n;
-                            if (total > 50L * 1024 * 1024) {
-                                throw new IOException("too big");
-                            }
-                            os.write(buf, 0, n);
-                        }
-                    }
-                    final Intent send = new Intent(Intent.ACTION_SEND);
-                    send.setType(mime);
-                    send.putExtra(Intent.EXTRA_STREAM, ShareProvider.uriFor(out));
-                    send.putExtra(Intent.EXTRA_TEXT, text);
-                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            String r = startShare(send, pkg);
-                            if ("missing".equals(r)) {
-                                // That app isn't installed: offer the phone's share menu with the file instead.
-                                r = startShare(send.setPackage(null), "");
-                                r = "ok".equals(r) ? "ok" : "missing";
-                            }
-                            sendToPage("{\"type\":\"share\",\"state\":\"" + r + "\"}");
-                        }
-                    });
-                    return;
-                } catch (IOException | RuntimeException e) {
-                    state = "error";
-                } finally {
-                    if (conn != null) {
-                        conn.disconnect();
-                    }
-                }
-                sendToPage("{\"type\":\"share\",\"state\":\"" + state + "\"}");
-            }
-        }).start();
     }
 
     void sendToPage(final String json) {
@@ -502,13 +402,6 @@ public class MainActivity extends Activity {
                 Thread.currentThread().interrupt();
             }
             return result[0];
-        }
-
-        @JavascriptInterface
-        public void shareMedia(String url, String mime, String text, String pkg) {
-            if (fromApp()) {
-                MainActivity.this.shareMedia(url, mime, text, pkg);
-            }
         }
 
         @JavascriptInterface
