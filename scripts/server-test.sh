@@ -5,7 +5,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 DB=furzone_server_test
 WORK="$(mktemp -d)"
-trap 'kill "${PGRST_PID:-0}" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+cleanup() {
+    status=$?
+    if [ "$status" -ne 0 ] && [ -f "$WORK/pgrst.log" ]; then
+        echo "---- PostgREST log ----"
+        cat "$WORK/pgrst.log"
+    fi
+    kill "${PGRST_PID:-0}" 2>/dev/null || true
+    rm -rf "$WORK"
+    exit "$status"
+}
+trap cleanup EXIT
+echo "server test: using $(psql --version), PostgREST ${PGRST_VERSION:-v12.2.3}"
 
 PGRST="$(command -v postgrest || true)"
 if [ -z "$PGRST" ]; then
@@ -35,7 +46,8 @@ do $$ begin
 end $$;
 grant anon, authenticated, service_role to furzone_api;
 SQL
-psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$WORK/standins.sql" -f supabase/schema.sql 2>&1 | grep -v NOTICE || true
+psql -q -v ON_ERROR_STOP=1 -d "$DB" -f "$WORK/standins.sql" -f supabase/schema.sql 2> "$WORK/schema.log" \
+    || { grep -v NOTICE "$WORK/schema.log"; exit 1; }
 psql -q -v ON_ERROR_STOP=1 -d "$DB" <<'SQL'
 insert into auth.users (id, email, raw_user_meta_data) values
  ('11111111-1111-4111-8111-111111111111', 'a@example.com', '{"username":"owner1"}'),
@@ -54,5 +66,6 @@ server-port = 3999
 CONF
 "$PGRST" "$WORK/pgrst.conf" > "$WORK/pgrst.log" 2>&1 &
 PGRST_PID=$!
-for _ in $(seq 1 30); do curl -s -o /dev/null "$PGRST_URL/" && break; sleep 0.5; done
+for _ in $(seq 1 60); do curl -s -o /dev/null "$PGRST_URL/" && break; sleep 0.5; done
+curl -s -o /dev/null "$PGRST_URL/" || { echo "PostgREST didn't start"; exit 1; }
 node test/server.test.mjs
