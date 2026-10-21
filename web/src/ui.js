@@ -12,7 +12,12 @@ export function h(tag, props, ...children) {
             if (v === undefined || v === null || v === false) continue;
             if (k === 'text') el.textContent = v;
             else if (k === 'class') el.className = v;
-            else if (k === 'style') Object.assign(el.style, v);
+            else if (k === 'style') {
+                for (const [prop, val] of Object.entries(v)) {
+                    if (prop.startsWith('--')) el.style.setProperty(prop, val);
+                    else el.style[prop] = val;
+                }
+            }
             else if (k === 'dataset') Object.assign(el.dataset, v);
             else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
             else if (k === 'ref') v(el);
@@ -63,9 +68,12 @@ export function toast(message, kind = 'info', ms = 3200) {
         toastHost = h('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' });
         document.body.append(toastHost);
     }
+    // Same message again: don't stack it. More than three: drop the oldest.
+    for (const old of toastHost.children) if (old.dataset.msg === message) old.remove();
+    while (toastHost.children.length >= 3) toastHost.firstChild.remove();
     const el = h(
         'div',
-        { class: 'toast toast-' + kind },
+        { class: 'toast toast-' + kind, dataset: { msg: message } },
         icon(kind === 'error' ? 'close' : kind === 'success' ? 'check' : 'shield'),
         h('span', { text: message })
     );

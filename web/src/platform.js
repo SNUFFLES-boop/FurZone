@@ -2,7 +2,7 @@
 // whichever native shell is around: version, opening links outside the app, and installing updates.
 import { GITHUB_REPO } from './config.js';
 
-const android = typeof window !== 'undefined' ? window.SpotterAndroid : undefined;
+const android = typeof window !== 'undefined' ? window.PawstAndroid : undefined;
 const webview2 = typeof window !== 'undefined' && window.chrome && window.chrome.webview;
 
 export const platform = android ? 'android' : webview2 ? 'windows' : 'web';
@@ -25,8 +25,8 @@ function onNativeMessage(msg) {
 
 if (webview2) webview2.addEventListener('message', (e) => onNativeMessage(e.data));
 if (typeof window !== 'undefined') {
-    // Android calls this with JSON strings.
-    window.__spotterNative = (json) => {
+    // Android calls window.__pawstNative with JSON strings.
+    window.__pawstNative = (json) => {
         try {
             onNativeMessage(JSON.parse(json));
         } catch {
@@ -69,7 +69,7 @@ export function onUpdateProgress(fn) {
 
 // ---------- updates ----------
 
-const ASSET = { android: 'Spotter.apk', windows: 'Spotter_Setup.exe' };
+const ASSET = { android: 'Pawst.apk', windows: 'Pawst_Setup.exe' };
 
 /**
  * Reads the newest GitHub release. Its tag is v1.0.<versionCode>; the download must come with a SHA-256
