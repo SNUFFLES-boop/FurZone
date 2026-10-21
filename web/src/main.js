@@ -18,6 +18,7 @@ import { renderProfile } from './views/profile.js';
 import { renderPostPage } from './views/post.js';
 import { renderSettings } from './views/settings.js';
 import { startUpdateChecks } from './views/updates.js';
+import { renderStaffPage, renderBanned } from './staff.js';
 
 const root = document.getElementById('app');
 let shell = null;
@@ -80,6 +81,13 @@ async function enter() {
         toast(errorText(e), 'error');
         await app.backend.auth.signOut().catch(() => {});
         return showLogin();
+    }
+    if (app.me.restriction && app.me.restriction.banned) {
+        stopView();
+        shell = null;
+        clear(root);
+        renderBanned(root, app.me, () => app.backend.auth.signOut());
+        return;
     }
     buildShell();
     if (!location.hash.startsWith('#/') || location.hash === '#/') location.hash = '#/home';
@@ -175,6 +183,7 @@ function route() {
         else if (page === 'u') cleanup = renderProfile(view, ctx, arg);
         else if (page === 'p') cleanup = renderPostPage(view, ctx, arg);
         else if (page === 'settings') cleanup = renderSettings(view, ctx);
+        else if (page === 'staff') cleanup = renderStaffPage(view, ctx, arg);
         else location.hash = '#/home';
     } catch (e) {
         view.append(h('p', { class: 'muted pad', text: errorText(e) }));

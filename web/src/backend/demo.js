@@ -1,6 +1,6 @@
 // Demo backend: everything in memory, with a few furs already posting. Used before the server is set up
 // ("Try the demo") and by the UI tests. It follows the same rules as the database.
-import { normalizePost, normalizeProfile, extractTags } from './shape.js';
+import { normalizePost, normalizeProfile, normalizeRestriction, extractTags } from './shape.js';
 
 const HOUR = 3600 * 1000;
 const VRC_ID = /^usr_[0-9a-f-]{36}$/;
@@ -38,7 +38,10 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const follows = new Set();
     const blocks = new Set(); // `${blocker}:${blocked}`
     const notifications = [];
-    const reports = new Set();
+    const reports = new Map(); // `${reporter}:${post}` -> { reason, at }
+    const staff = new Map(); // user id -> owner | admin | mod | staff
+    const restrictions = new Map(); // user id -> { banned, no_posting, …, reason, until }
+    const staffLog = [];
     const blobs = new Map();
     const vrcCodes = new Map();
     const listeners = new Set();
@@ -47,7 +50,11 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const mediaUrl = (path) => blobs.get(path) || '';
     const iso = (t) => new Date(t).toISOString();
     const providersOf = (uid) => connections.filter((c) => c.user_id === uid).map((c) => c.provider).sort();
-    const P = (row) => (row ? normalizeProfile({ ...row, connections: providersOf(row.id) }, mediaUrl) : null);
+    const P = (row) => (row ? normalizeProfile({ ...row, connections: providersOf(row.id), role: staff.get(row.id) || null }, mediaUrl) : null);
+    const RANKS = { owner: 4, admin: 3, mod: 2, staff: 1 };
+    const rank = (uid) => RANKS[staff.get(uid)] || 0;
+    const limitsOf = (uid) => normalizeRestriction(restrictions.get(uid));
+    const isBanned = (uid) => !!(limitsOf(uid) && limitsOf(uid).banned);
     const blocked = (a, b) => blocks.has(`${a}:${b}`) || blocks.has(`${b}:${a}`);
     const delay = (v) => new Promise((r) => setTimeout(() => r(v), 40));
 
@@ -150,6 +157,16 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         comments.push({ id: id('cmt'), post_id: suitPost.id, user_id: seeded.get(u), body, created_at: iso(now() - HOUR) });
         suitPost.comments_count++;
     }
+    staff.set(seeded.get('blitzwolf'), 'mod');
+    staff.set(seeded.get('mochibun'), 'staff');
+    const cheese = posts.find((p) => p.caption.startsWith('Unpopular opinion'));
+    for (const [u, reason] of [
+        ['pastelpaws', 'Spam'],
+        ['neonproto', 'Rude or hateful']
+    ]) {
+        reports.set(`${seeded.get(u)}:${cheese.id}`, { reason, at: iso(now() - 2 * HOUR) });
+        cheese.reports_count++;
+    }
     notifications.length = 0; // seed activity isn't news to anyone
 
     // ---- helpers ----
@@ -161,7 +178,35 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         for (const cb of listeners) cb(event, session ? { ...session } : null);
     }
     function canSee(p) {
-        return p.user_id === session.userId || (!p.hidden && !blocked(session.userId, p.user_id));
+        return p.user_id === session.userId || rank(session.userId) >= 1 || (!p.hidden && !blocked(session.userId, p.user_id) && !isBanned(p.user_id));
+    }
+    /** Same messages as the database's restriction checks. */
+    function checkLimits(uid, what) {
+        const r = limitsOf(uid);
+        if (!r) return;
+        const ending = r.until ? ' until ' + new Date(r.until).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        if (r.banned) throw new Error(`Your account is banned${ending}.`);
+        if (what === 'post' && r.no_posting) throw new Error(`A moderator turned off posting for your account${ending}.`);
+        if (what === 'upload' && r.no_uploads) throw new Error(`A moderator turned off picture and video uploads for your account${ending}.`);
+        if (what === 'comment' && r.no_comments) throw new Error(`A moderator turned off commenting for your account${ending}.`);
+        if (what === 'profile' && r.no_profile_edits) throw new Error(`A moderator turned off profile changes for your account${ending}.`);
+    }
+    function staffNeed(min) {
+        const mine = rank(me());
+        if (mine < min) {
+            throw new Error(
+                { 1: 'Only staff can do that.', 2: 'Only mods and above can do that.', 3: 'Only admins and the owner can do that.' }[min] || 'Only the owner can do that.'
+            );
+        }
+        return mine;
+    }
+    function staffTarget(mine, target) {
+        if (!profiles.has(target)) throw new Error("That account doesn't exist.");
+        if (target === me()) throw new Error("You can't do that to your own account.");
+        if (rank(target) >= mine) throw new Error('You can only act on people ranked below you.');
+    }
+    function note(action, target_user, target_post, details = {}) {
+        staffLog.unshift({ id: staffLog.length + 1, actor_id: me(), action, target_user, target_post, details, created_at: iso(now()) });
     }
     function row(p) {
         const pr = profiles.get(p.user_id);
@@ -174,6 +219,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
                 species: pr.species,
                 pronouns: pr.pronouns,
                 connections: providersOf(pr.id),
+                role: staff.get(pr.id) || null,
                 booped: boops.has(`${session.userId}:${p.id}`),
                 following: follows.has(`${session.userId}:${p.user_id}`)
             },
@@ -184,6 +230,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         const r = addProfile(username, username);
         r.created_at = iso(now());
         accounts.set(email, { password, userId: r.id });
+        // The first account made in the demo is the owner, so the staff tools can be tried out.
+        if (![...staff.values()].includes('owner')) staff.set(r.id, 'owner');
         // New accounts follow two people so the Following feed isn't empty.
         doFollow(r.id, seeded.get('embertail'));
         doFollow(r.id, seeded.get('neonproto'));
@@ -272,7 +320,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         },
 
         async me() {
-            return P(profiles.get(me()));
+            const r = profiles.get(me());
+            return normalizeProfile({ ...r, connections: providersOf(r.id), role: staff.get(r.id) || null, restriction: restrictions.get(r.id) }, mediaUrl);
         },
         async profileByUsername(username) {
             me();
@@ -283,6 +332,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             return connections.filter((c) => c.user_id === userId).map((c) => ({ ...c }));
         },
         async updateProfile(patch) {
+            checkLimits(me(), 'profile');
             const r = profiles.get(me());
             if ('username' in patch && patch.username !== r.username) {
                 if (!/^[a-z0-9_]{3,20}$/.test(patch.username)) throw new Error('Pick a username of 3-20 letters, numbers or _.');
@@ -298,6 +348,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             return P(r);
         },
         async uploadImage(kind, blob) {
+            checkLimits(me(), 'upload');
             const path = `${me()}/${kind}-${Date.now()}`;
             blobs.set(path, URL.createObjectURL(blob));
             return this.updateProfile({ [kind + '_path']: path });
@@ -324,6 +375,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
                 (p) =>
                     canSee(p) &&
                     !p.hidden &&
+                    !isBanned(p.user_id) &&
                     (!before || Date.parse(p.created_at) < Date.parse(before)) &&
                     (!tag || p.tags.includes(String(tag).toLowerCase())) &&
                     (scope !== 'following' || p.user_id === uid || follows.has(`${uid}:${p.user_id}`))
@@ -350,6 +402,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
                 throw new Error('Slow down: too many posts right now. Try again in a bit.');
             }
             if (!file && !String(caption || '').trim()) throw new Error('Add a picture, a video or some words.');
+            checkLimits(uid, 'post');
+            if (file) checkLimits(uid, 'upload');
             let media_path = null;
             if (file) {
                 media_path = `${uid}/${mediaType}-${Date.now()}`;
@@ -364,6 +418,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         async editPost(postId, { caption, credit }) {
             const p = posts.find((x) => x.id === postId && x.user_id === me());
             if (p) {
+                checkLimits(me(), 'post');
                 p.caption = caption.trim();
                 p.credit = credit.trim();
                 p.tags = extractTags(p.caption);
@@ -377,6 +432,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             }
         },
         async boop(postId) {
+            checkLimits(me(), 'any');
             const p = posts.find((x) => x.id === postId && canSee(x));
             if (p) doBoop(me(), p);
         },
@@ -388,7 +444,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             const uid = me();
             return delay(
                 comments
-                    .filter((c) => c.post_id === postId && !blocked(uid, c.user_id))
+                    .filter((c) => c.post_id === postId && (c.user_id === uid || rank(uid) >= 1 || (!blocked(uid, c.user_id) && !isBanned(c.user_id))))
                     .map((c) => ({ id: c.id, body: c.body, created_at: c.created_at, user: P(profiles.get(c.user_id)) }))
             );
         },
@@ -396,6 +452,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             const uid = me();
             const text = String(body || '').trim();
             if (!text || text.length > 500) throw new Error('Comments are 1–500 characters.');
+            checkLimits(uid, 'comment');
             const p = posts.find((x) => x.id === postId && canSee(x));
             if (!p) throw new Error("You can't comment on that.");
             const c = { id: id('cmt'), post_id: postId, user_id: uid, body: text, created_at: iso(now()) };
@@ -413,14 +470,16 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             comments.splice(i, 1);
             if (p) p.comments_count--;
         },
-        async report(postId) {
+        async report(postId, reason = 'Other') {
+            checkLimits(me(), 'any');
             const key = `${me()}:${postId}`;
             if (reports.has(key)) return;
-            reports.add(key);
+            reports.set(key, { reason, at: iso(now()) });
             const p = posts.find((x) => x.id === postId);
             if (p && ++p.reports_count >= 5) p.hidden = true;
         },
         async follow(userId) {
+            checkLimits(me(), 'any');
             if (!doFollow(me(), userId) && blocked(me(), userId)) throw new Error("You can't follow them.");
         },
         async unfollow(userId) {
@@ -507,6 +566,115 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             await delay();
             return { connected: true, handle };
         },
+        // ---- staff: the same rules as the database's staff_* functions ----
+        async staffRestriction(userId) {
+            staffNeed(1);
+            return limitsOf(userId);
+        },
+        async staffRestrict(userId, c) {
+            const mine = staffNeed(2);
+            staffTarget(mine, userId);
+            const old = restrictions.get(userId);
+            if (mine < 3 && old && old.banned && !old.until) throw new Error('Only admins and the owner can change a permanent ban.');
+            if (mine < 3 && c.banned && (!c.days || c.days > 30)) throw new Error('Mods can ban for up to 30 days. Ask an admin for longer.');
+            const keys = ['banned', 'no_posting', 'no_comments', 'no_uploads', 'no_profile_edits'];
+            const lifting = !keys.some((k) => c[k]);
+            if (lifting) restrictions.delete(userId);
+            else {
+                restrictions.set(userId, {
+                    ...Object.fromEntries(keys.map((k) => [k, !!c[k]])),
+                    reason: String(c.reason || '').trim(),
+                    until: c.days ? iso(now() + c.days * 24 * HOUR) : null
+                });
+            }
+            note(lifting ? 'lift' : c.banned ? 'ban' : 'limit', userId, null, { ...c });
+            await delay();
+        },
+        async staffSetRole(userId, role) {
+            const mine = staffNeed(3);
+            const want = role ? RANKS[role] : 0;
+            if (role && (!want || role === 'owner')) throw new Error('Pick staff, mod or admin.');
+            staffTarget(mine, userId);
+            if (want >= mine) throw new Error('You can only hand out ranks below your own.');
+            if (role) staff.set(userId, role);
+            else staff.delete(userId);
+            note('set_role', userId, null, { role: role || null });
+        },
+        async staffSetHidden(postId, hidden) {
+            const mine = staffNeed(1);
+            const p = posts.find((x) => x.id === postId);
+            if (!p) throw new Error('That post is gone.');
+            staffTarget(mine, p.user_id);
+            p.hidden = !!hidden;
+            note(hidden ? 'hide_post' : 'unhide_post', p.user_id, p.id);
+        },
+        async staffDeletePost(postId) {
+            const mine = staffNeed(2);
+            const i = posts.findIndex((x) => x.id === postId);
+            if (i < 0) throw new Error('That post is gone.');
+            staffTarget(mine, posts[i].user_id);
+            const [p] = posts.splice(i, 1);
+            profiles.get(p.user_id).posts_count--;
+            for (const k of [...reports.keys()]) if (k.endsWith(':' + postId)) reports.delete(k);
+            note('delete_post', p.user_id, p.id, { caption: p.caption.slice(0, 200) });
+        },
+        async staffDeleteComment(commentId) {
+            const mine = staffNeed(2);
+            const i = comments.findIndex((c) => c.id === commentId);
+            if (i < 0) return;
+            staffTarget(mine, comments[i].user_id);
+            const [c] = comments.splice(i, 1);
+            const p = posts.find((x) => x.id === c.post_id);
+            if (p) p.comments_count--;
+            note('delete_comment', c.user_id, c.post_id, { body: c.body.slice(0, 200) });
+        },
+        async staffDismiss(postId) {
+            const mine = staffNeed(1);
+            const p = posts.find((x) => x.id === postId);
+            if (!p) throw new Error('That post is gone.');
+            staffTarget(mine, p.user_id);
+            for (const k of [...reports.keys()]) if (k.endsWith(':' + postId)) reports.delete(k);
+            p.reports_count = 0;
+            p.hidden = false;
+            note('dismiss_reports', p.user_id, p.id);
+        },
+        async staffReports() {
+            staffNeed(1);
+            const byPost = new Map();
+            for (const [k, r] of reports) {
+                const postId = k.slice(k.indexOf(':') + 1);
+                const p = posts.find((x) => x.id === postId);
+                if (!p) continue;
+                const item = byPost.get(postId) || { p, reasons: new Set(), count: 0, last: r.at };
+                item.reasons.add(r.reason);
+                item.count++;
+                if (r.at > item.last) item.last = r.at;
+                byPost.set(postId, item);
+            }
+            return delay(
+                [...byPost.values()]
+                    .sort((a, b) => (a.last < b.last ? 1 : -1))
+                    .map(({ p, reasons, count, last }) => ({
+                        post: { id: p.id, caption: p.caption, media_url: mediaUrl(p.media_path), media_type: p.media_type, hidden: p.hidden },
+                        user: P(profiles.get(p.user_id)),
+                        reports: count,
+                        reasons: [...reasons],
+                        last_report: last
+                    }))
+            );
+        },
+        async staffTeam() {
+            staffNeed(1);
+            return [...staff]
+                .filter(([uid]) => profiles.has(uid))
+                .map(([uid, role]) => ({ role, granted_at: iso(now()), user: P(profiles.get(uid)) }))
+                .sort((a, b) => RANKS[b.role] - RANKS[a.role]);
+        },
+        async staffLog() {
+            staffNeed(3);
+            return staffLog.map((e) => ({ ...e, actor: P(profiles.get(e.actor_id)), target: P(profiles.get(e.target_user)) }));
+        },
+
         async unlink(provider) {
             const uid = me();
             const i = connections.findIndex((c) => c.user_id === uid && c.provider === provider);

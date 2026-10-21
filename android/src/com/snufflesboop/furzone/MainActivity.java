@@ -87,6 +87,15 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        // On Discord's login (or any page that isn't the app), back returns to the app instead of leaving it.
+        if (!APP_HOST.equals(currentHost)) {
+            if (webView.canGoBack()) {
+                webView.goBack();
+            } else {
+                webView.loadUrl(START_URL);
+            }
+            return;
+        }
         webView.evaluateJavascript("window.furzoneBack ? window.furzoneBack() : false", new ValueCallback<String>() {
             @Override
             public void onReceiveValue(String value) {

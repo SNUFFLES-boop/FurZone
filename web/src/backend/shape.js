@@ -19,7 +19,23 @@ export function normalizeProfile(row, mediaUrl) {
         following_count: Number(row.following_count) || 0,
         posts_count: Number(row.posts_count) || 0,
         connections: Array.isArray(row.connections) ? row.connections : [],
+        role: row.role || null,
+        restriction: normalizeRestriction(row.restriction),
         created_at: row.created_at || null
+    };
+}
+
+/** A moderator's limits on an account, only while they're still in force. */
+export function normalizeRestriction(r) {
+    if (!r || (r.until && Date.parse(r.until) <= Date.now())) return null;
+    return {
+        banned: !!r.banned,
+        no_posting: !!r.no_posting,
+        no_comments: !!r.no_comments,
+        no_uploads: !!r.no_uploads,
+        no_profile_edits: !!r.no_profile_edits,
+        reason: r.reason || '',
+        until: r.until || null
     };
 }
 
@@ -33,7 +49,8 @@ export function normalizePost(row, mediaUrl) {
             avatar_url: row.avatar_path ? mediaUrl(row.avatar_path) : '',
             species: row.species || '',
             pronouns: row.pronouns || '',
-            connections: Array.isArray(row.connections) ? row.connections : []
+            connections: Array.isArray(row.connections) ? row.connections : [],
+            role: row.role || null
         },
         caption: row.caption || '',
         credit: row.credit || '',

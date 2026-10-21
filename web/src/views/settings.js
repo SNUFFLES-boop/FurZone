@@ -5,6 +5,7 @@ import { connectionsSection } from './connect.js';
 import { updateSection } from './updates.js';
 import { editProfile } from './profile.js';
 import { VERSION } from '../config.js';
+import { myRank, roleBadge } from '../staff.js';
 
 export function renderSettings(view) {
     const group = (title, ...rows) => h('section', { class: 'settings-group' }, h('h2', { text: title }), h('div', { class: 'settings-card' }, rows));
@@ -33,6 +34,13 @@ export function renderSettings(view) {
                 item('lock', 'Change password', changePassword)
             ),
             group('Connected accounts', h('div', { class: 'pad-sm' }, connectionsSection())),
+            myRank() >= 1 &&
+                group(
+                    'Staff',
+                    h('a', { class: 'settings-item', href: '#/staff/reports' }, icon('flag'), h('span', { class: 'grow', text: 'Reports' }), roleBadge(app.me.role), icon('chevron', 'faint')),
+                    h('a', { class: 'settings-item', href: '#/staff/team' }, icon('shieldCheck'), h('span', { class: 'grow', text: 'Team' }), icon('chevron', 'faint')),
+                    myRank() >= 3 && h('a', { class: 'settings-item', href: '#/staff/log' }, icon('copy'), h('span', { class: 'grow', text: 'Staff log' }), icon('chevron', 'faint'))
+                ),
             group('Safety', item('ban', 'Blocked accounts', blockedList), h('p', { class: 'settings-note' }, icon('shield'), 'FurZone is safe-for-work only. Report posts that break the rules: five reports hide a post until a moderator checks it.')),
             group(
                 'App',

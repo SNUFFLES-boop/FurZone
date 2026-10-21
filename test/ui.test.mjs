@@ -243,6 +243,47 @@ await test('inbox shows boops and follows and clears the badge', async () => {
     assert.equal(await page.locator('.tabbar .nav-inbox .badge').isHidden(), true);
 });
 
+await test('staff: ranks show as badges, and the owner reviews reports, limits and promotes', async () => {
+    // In the demo, the first account made is the owner.
+    await page.evaluate(() => (location.hash = '#/home'));
+    await page.locator('.role-badge.role-mod').first().waitFor();
+    await page.evaluate(() => (location.hash = '#/settings'));
+    await page.locator('.settings-item', { hasText: 'Reports' }).click();
+    const card = page.locator('.report-card', { hasText: 'Unpopular opinion' });
+    await card.waitFor();
+    assert.match(await card.textContent(), /2 reports/);
+    await shot('15-staff-reports');
+    await card.getByRole('button', { name: 'Looks fine' }).click();
+    await toastSays('Reports cleared');
+    await text('All clear');
+
+    await page.evaluate(() => (location.hash = '#/u/skysergal'));
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: 'Staff tools' }).click();
+    await text('No limits on this account');
+    await page.getByText('Turn off posting').click();
+    await page.getByPlaceholder('Why? (the person sees this)').fill('cheese spam');
+    await shot('16-staff-tools');
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await toastSays('Limits saved');
+
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: 'Staff tools' }).click();
+    await text('Posting turned off');
+    await page.locator('.staff-section select').nth(1).selectOption('mod');
+    await page.getByRole('button', { name: 'Save rank' }).click();
+    await toastSays('is now Mod');
+    await page.locator('.profile-id .role-badge.role-mod').waitFor();
+
+    await page.evaluate(() => (location.hash = '#/staff/team'));
+    await page.locator('.person', { hasText: 'testfox' }).locator('.role-owner').waitFor();
+    await page.locator('.person', { hasText: 'skysergal' }).locator('.role-mod').waitFor();
+    await page.evaluate(() => (location.hash = '#/staff/log'));
+    await text('turned off posting for @skysergal');
+    await text('gave @skysergal the rank Mod');
+    await shot('17-staff-log');
+});
+
 await test('settings, then log out back to the login screen', async () => {
     await page.locator('.tabbar .nav-me').click();
     await page.locator('.profile-actions a[href="#/settings"]').click();

@@ -2,6 +2,7 @@ import { h, icon, toast, errorText, withBusy, field } from '../ui.js';
 import { app, refreshMe } from '../state.js';
 import { mediaKind, prepareImage, checkVideo } from '../format.js';
 import { extractTags } from '../backend/shape.js';
+import { restrictionText } from '../staff.js';
 
 const QUICK_TAGS = ['art', 'fursuit', 'vrchat', 'sketch', 'commission', 'ych', 'refsheet', 'meme', 'con', 'avatar'];
 
@@ -140,6 +141,11 @@ export function renderCreate(view, ctx) {
     };
 
     drawDrop();
-    view.append(h('div', { class: 'page create' }, h('h1', { class: 'page-title', text: 'New post' }), form));
+    const limits = app.me.restriction;
+    const notice =
+        limits &&
+        (limits.no_posting || limits.no_uploads) &&
+        h('p', { class: 'limit-notice' }, icon('ban'), h('span', { text: restrictionText(limits) + (limits.reason ? ` · “${limits.reason}”` : '') }));
+    view.append(h('div', { class: 'page create' }, h('h1', { class: 'page-title', text: 'New post' }), notice, form));
     return () => previewUrl && URL.revokeObjectURL(previewUrl);
 }

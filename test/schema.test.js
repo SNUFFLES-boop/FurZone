@@ -9,7 +9,7 @@ const SUPABASE_STANDINS = `
   create role anon nologin;
   create role authenticated nologin;
   create schema auth;
-  create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}');
+  create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}', banned_until timestamptz);
   create table auth.identities (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users on delete cascade,
                                 provider text, provider_id text, identity_data jsonb);
   create function auth.uid() returns uuid language sql stable as
@@ -305,4 +305,109 @@ test('deleting your account removes everything you made', async () => {
     assert.equal((await admin('select id from auth.users where id = $1', [users.leaver])).length, 0);
     assert.equal((await admin('select id from posts where user_id = $1', [users.leaver])).length, 0);
     await assert.rejects(as(null, 'select delete_my_account()'), /permission denied/);
+});
+
+// ---------------------------------------------------------------- staff and moderation
+
+async function staffTeam() {
+    if (users.boss) return;
+    for (const n of ['boss', 'chief', 'modder', 'helper', 'member', 'member2']) await signUp(n);
+    // The owner is only ever made in the SQL editor.
+    await admin(`insert into staff (user_id, role) values ($1, 'owner')`, [users.boss]);
+}
+
+test('staff ranks: owner > admin > mod > staff, and nobody promotes themselves', async () => {
+    await staffTeam();
+    await assert.rejects(as('member', `insert into staff (user_id, role) values ($1, 'owner')`, [users.member]), /permission denied/);
+    await assert.rejects(as('member', `select staff_set_role($1, 'mod')`, [users.member2]), /Only admins/);
+    await as('boss', `select staff_set_role($1, 'admin')`, [users.chief]);
+    await as('chief', `select staff_set_role($1, 'mod')`, [users.modder]);
+    await as('chief', `select staff_set_role($1, 'staff')`, [users.helper]);
+    await assert.rejects(as('chief', `select staff_set_role($1, 'admin')`, [users.member]), /below your own/);
+    await assert.rejects(as('chief', `select staff_set_role($1, null)`, [users.boss]), /ranked below you/);
+    await assert.rejects(as('chief', `select staff_set_role($1, 'staff')`, [users.chief]), /your own account/);
+    await assert.rejects(as('modder', `select staff_set_role($1, 'staff')`, [users.member]), /Only admins/);
+    await assert.rejects(as('boss', `select staff_set_role($1, 'owner')`, [users.member]), /Pick staff, mod or admin|below your own/);
+    const roles = await as('member', `select s.role, p.username from staff s join profiles p on p.id = s.user_id order by s.role`);
+    assert.deepEqual(roles.map((r) => `${r.username}:${r.role}`).sort(), ['boss:owner', 'chief:admin', 'helper:staff', 'modder:mod']);
+    // Anyone logged in can read ranks (they show as badges).
+    const [row] = await as('member', `select role from staff where user_id = $1`, [users.modder]);
+    assert.equal(row.role, 'mod');
+});
+
+test('limits: a mod can turn off single features, enforced by the database', async () => {
+    await staffTeam();
+    await assert.rejects(as('helper', `select staff_restrict($1, false, true, false, false, false, 1, 'x')`, [users.member]), /Only mods/);
+    await as('modder', `select staff_restrict($1, false, true, false, true, true, 3, 'spamming')`, [users.member]);
+    await assert.rejects(as('member', `insert into posts (caption) values ('hi')`), /turned off posting/);
+    await assert.rejects(as('member', `insert into storage.objects (bucket_id, name) values ('media', $1)`, [`${users.member}/x.jpg`]), /row-level security/);
+    await assert.rejects(as('member', `update profiles set bio = 'x' where id = $1`, [users.member]), /profile changes/);
+    // Everything else still works, including counters on their profile.
+    await as('member', `insert into follows (followee_id) values ($1)`, [users.member2]);
+    await as('member2', `insert into follows (followee_id) values ($1)`, [users.member]);
+    const [mine] = await as('member', 'select * from restrictions');
+    assert.equal(mine.no_posting, true);
+    assert.equal(mine.reason, 'spamming');
+    assert.equal((await as('member2', 'select * from restrictions')).length, 0, 'others cannot see your limits');
+    assert.equal((await as('helper', 'select * from restrictions where user_id = $1', [users.member])).length, 1, 'staff can');
+    // Lifting everything removes the row.
+    await as('modder', `select staff_restrict($1, false, false, false, false, false, null, '')`, [users.member]);
+    await as('member', `insert into posts (caption) values ('back again')`);
+    // Nobody can act on someone of the same or higher rank.
+    await assert.rejects(as('modder', `select staff_restrict($1, true, false, false, false, false, 1, '')`, [users.chief]), /ranked below you/);
+    await assert.rejects(as('member', 'insert into restrictions (user_id) values ($1)', [users.member2]), /permission denied/);
+});
+
+test('bans: hidden from everyone but staff, login blocked, mods capped at 30 days', async () => {
+    await staffTeam();
+    await as('member2', `insert into posts (caption) values ('soon banned')`);
+    await assert.rejects(as('modder', `select staff_restrict($1, true, false, false, false, false, null, 'x')`, [users.member2]), /up to 30 days/);
+    await assert.rejects(as('modder', `select staff_restrict($1, true, false, false, false, false, 31, 'x')`, [users.member2]), /up to 30 days/);
+    await as('chief', `select staff_restrict($1, true, false, false, false, false, null, 'harassment')`, [users.member2]);
+    const [u] = await admin('select banned_until from auth.users where id = $1', [users.member2]);
+    assert.ok(new Date(u.banned_until) > new Date(Date.now() + 50 * 365 * 864e5), 'login blocked');
+    assert.equal((await as('member', `select id from posts where caption = 'soon banned'`)).length, 0);
+    assert.equal((await as('member', `select id from feed('all') where username = 'member2'`)).length, 0);
+    assert.equal((await as('helper', `select id from posts where caption = 'soon banned'`)).length, 1);
+    await assert.rejects(as('member2', `insert into boops (post_id) select id from posts limit 1`), /banned/);
+    await assert.rejects(as('modder', `select staff_restrict($1, false, false, false, false, false, null, '')`, [users.member2]), /permanent ban/);
+    await as('chief', `select staff_restrict($1, false, false, false, false, false, null, '')`, [users.member2]);
+    const [u2] = await admin('select banned_until from auth.users where id = $1', [users.member2]);
+    assert.equal(u2.banned_until, null);
+    assert.equal((await as('member', `select id from posts where caption = 'soon banned'`)).length, 1);
+});
+
+test('staff tools: reports, hide, delete, and an admin-only log', async () => {
+    await staffTeam();
+    const [p] = await as('member', `insert into posts (caption) values ('reported thing') returning id`);
+    await as('member2', `insert into reports (post_id, reason) values ($1, 'rude')`, [p.id]);
+    await assert.rejects(as('member', 'select * from staff_reports()'), /Only staff/);
+    const list = await as('helper', 'select * from staff_reports()');
+    const item = list.find((r) => r.post_id === p.id);
+    assert.equal(Number(item.reports), 1);
+    assert.deepEqual(item.reasons, ['rude']);
+    await as('helper', 'select staff_set_post_hidden($1, true)', [p.id]);
+    assert.equal((await as('member2', 'select id from posts where id = $1', [p.id])).length, 0);
+    await as('helper', 'select staff_dismiss_reports($1)', [p.id]);
+    assert.equal((await as('member2', 'select id from posts where id = $1', [p.id])).length, 1);
+    await assert.rejects(as('helper', 'select staff_delete_post($1)', [p.id]), /Only mods/);
+    const [c] = await as('member2', `insert into comments (post_id, body) values ($1, 'mean') returning id`, [p.id]);
+    await as('modder', 'select staff_delete_comment($1)', [c.id]);
+    assert.equal((await admin('select id from comments where id = $1', [c.id])).length, 0);
+    await as('modder', 'select staff_delete_post($1)', [p.id]);
+    assert.equal((await admin('select id from posts where id = $1', [p.id])).length, 0);
+    // Mods can clean up files in other people's folders.
+    await admin(`insert into storage.objects (bucket_id, name) values ('media', $1)`, [`${users.member}/gone.jpg`]);
+    await as('modder', `delete from storage.objects where name = $1`, [`${users.member}/gone.jpg`]);
+    assert.equal((await admin('select id from storage.objects where name = $1', [`${users.member}/gone.jpg`])).length, 0);
+    // The log: admins and the owner only, and nobody can write to it directly.
+    assert.equal((await as('modder', 'select * from staff_log')).length, 0);
+    const log = await as('chief', 'select action from staff_log');
+    for (const a of ['set_role', 'limit', 'ban', 'lift', 'hide_post', 'dismiss_reports', 'delete_comment', 'delete_post']) {
+        assert.ok(log.some((l) => l.action === a), a);
+    }
+    await assert.rejects(as('chief', `insert into staff_log (action) values ('fake')`), /permission denied/);
+    for (const f of ['staff_require(1)', `staff_note('x', null, null, null)`]) {
+        await assert.rejects(as('chief', `select ${f}`), /permission denied/);
+    }
 });

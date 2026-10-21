@@ -11,6 +11,8 @@
 --     Supabase Auth); VRChat only from the vrchat-verify server function after it has seen the code in
 --     the person's VRChat bio. The app itself can never write a connection.
 --   * Media goes to the "media" bucket, only into the uploader's own folder, with size and type limits.
+--   * Staff ranks (owner > admin > mod > staff) can review reports, hide or delete posts, limit features
+--     and ban accounts, but only for people ranked below them. Everything they do is logged.
 
 create schema if not exists private;
 revoke all on schema private from public;
@@ -137,12 +139,47 @@ create table if not exists private.vrchat_session (
   updated_at timestamptz not null default now()
 );
 
+-- Staff ranks: owner (4) > admin (3) > mod (2) > staff (1). Shown as badges, so everyone can read them.
+create table if not exists public.staff (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  role text not null check (role in ('owner', 'admin', 'mod', 'staff')),
+  granted_by uuid references public.profiles (id) on delete set null,
+  granted_at timestamptz not null default now()
+);
+
+-- Limits a moderator put on an account: a full ban, or single features turned off. until null = no end date.
+create table if not exists public.restrictions (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  banned boolean not null default false,
+  no_posting boolean not null default false,
+  no_comments boolean not null default false,
+  no_uploads boolean not null default false,
+  no_profile_edits boolean not null default false,
+  reason text not null default '' check (char_length(reason) <= 300),
+  until timestamptz,
+  set_by uuid references public.profiles (id) on delete set null,
+  set_at timestamptz not null default now()
+);
+
+-- Everything staff do, for admins and the owner to look back on.
+create table if not exists public.staff_log (
+  id bigint generated always as identity primary key,
+  actor_id uuid references public.profiles (id) on delete set null,
+  action text not null,
+  target_user uuid references public.profiles (id) on delete set null,
+  target_post uuid,
+  details jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+create index if not exists staff_log_created_idx on public.staff_log (created_at desc);
+
 -- ---------------------------------------------------------------- privileges
 -- Supabase grants everything on new tables to anon and authenticated by default; take it back and hand
 -- out only what the app needs. Logged-out visitors (anon) get nothing.
 
 revoke all on public.profiles, public.posts, public.boops, public.comments, public.follows, public.blocks,
-  public.reports, public.notifications, public.connections from anon, authenticated;
+  public.reports, public.notifications, public.connections, public.staff, public.restrictions,
+  public.staff_log from anon, authenticated;
 revoke all on all tables in schema private from anon, authenticated;
 
 grant select on public.profiles, public.posts, public.boops, public.comments, public.follows,
@@ -164,6 +201,8 @@ grant insert (post_id, reason) on public.reports to authenticated;
 grant select, delete on public.notifications to authenticated;
 grant update (read_at) on public.notifications to authenticated;
 grant delete on public.connections to authenticated;
+-- Staff tables are read-only from the app; every change goes through the staff_* functions below.
+grant select on public.staff, public.restrictions, public.staff_log to authenticated;
 
 -- ---------------------------------------------------------------- blocking helper
 
@@ -174,6 +213,34 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.is_blocked(uuid, uuid) from public, anon;
 grant execute on function public.is_blocked(uuid, uuid) to authenticated;
+
+-- 4 owner, 3 admin, 2 mod, 1 staff, 0 everyone else.
+create or replace function public.staff_rank(uid uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select coalesce((select case s.role when 'owner' then 4 when 'admin' then 3 when 'mod' then 2 else 1 end
+                     from staff s where s.user_id = uid), 0)
+$$;
+revoke all on function public.staff_rank(uuid) from public, anon;
+grant execute on function public.staff_rank(uuid) to authenticated;
+
+-- Banned right now? (Their posts and comments disappear for everyone but staff.)
+create or replace function public.is_banned(uid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from restrictions r where r.user_id = uid and r.banned and (r.until is null or r.until > now()))
+$$;
+revoke all on function public.is_banned(uuid) from public, anon;
+grant execute on function public.is_banned(uuid) to authenticated;
+
+-- Is the logged-in person barred from this right now? what: post, comment, upload, profile (a ban bars all).
+create or replace function public.my_restriction(what text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from restrictions r
+                  where r.user_id = auth.uid() and (r.until is null or r.until > now())
+                    and (r.banned or (what = 'post' and r.no_posting) or (what = 'comment' and r.no_comments)
+                         or (what = 'upload' and r.no_uploads) or (what = 'profile' and r.no_profile_edits)))
+$$;
+revoke all on function public.my_restriction(text) from public, anon;
+grant execute on function public.my_restriction(text) to authenticated;
 
 -- ---------------------------------------------------------------- row level security
 
@@ -186,6 +253,9 @@ alter table public.blocks enable row level security;
 alter table public.reports enable row level security;
 alter table public.notifications enable row level security;
 alter table public.connections enable row level security;
+alter table public.staff enable row level security;
+alter table public.restrictions enable row level security;
+alter table public.staff_log enable row level security;
 alter table private.vrchat_link_codes enable row level security;
 alter table private.vrchat_session enable row level security;
 
@@ -198,7 +268,8 @@ create policy profiles_update_own on public.profiles for update to authenticated
 -- Posts: hidden ones only to their owner; nothing between people who blocked each other.
 drop policy if exists posts_read on public.posts;
 create policy posts_read on public.posts for select to authenticated
-  using (user_id = auth.uid() or (not hidden and not public.is_blocked(auth.uid(), user_id)));
+  using (user_id = auth.uid() or public.staff_rank(auth.uid()) >= 1
+         or (not hidden and not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)));
 drop policy if exists posts_insert_own on public.posts;
 create policy posts_insert_own on public.posts for insert to authenticated with check (user_id = auth.uid());
 drop policy if exists posts_update_own on public.posts;
@@ -219,7 +290,8 @@ create policy boops_delete_own on public.boops for delete to authenticated using
 
 drop policy if exists comments_read on public.comments;
 create policy comments_read on public.comments for select to authenticated
-  using (not public.is_blocked(auth.uid(), user_id));
+  using (user_id = auth.uid() or public.staff_rank(auth.uid()) >= 1
+         or (not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)));
 drop policy if exists comments_insert_own on public.comments;
 create policy comments_insert_own on public.comments for insert to authenticated with check (
   user_id = auth.uid()
@@ -264,6 +336,15 @@ create policy connections_read on public.connections for select to authenticated
 -- Unlinking is always allowed; linking only happens on the server.
 drop policy if exists connections_delete_own on public.connections;
 create policy connections_delete_own on public.connections for delete to authenticated using (user_id = auth.uid());
+
+-- Ranks are public (badges). Your own limits are yours to see; staff see everyone's. The log is for admins.
+drop policy if exists staff_read on public.staff;
+create policy staff_read on public.staff for select to authenticated using (true);
+drop policy if exists restrictions_read on public.restrictions;
+create policy restrictions_read on public.restrictions for select to authenticated
+  using (user_id = auth.uid() or public.staff_rank(auth.uid()) >= 1);
+drop policy if exists staff_log_read on public.staff_log;
+create policy staff_log_read on public.staff_log for select to authenticated using (public.staff_rank(auth.uid()) >= 3);
 
 -- ---------------------------------------------------------------- rate limits
 
@@ -650,7 +731,7 @@ language sql stable security invoker set search_path = public as $$
          exists (select 1 from follows f where f.follower_id = auth.uid() and f.followee_id = p.user_id),
          array(select c.provider from connections c where c.user_id = p.user_id order by c.provider)
     from posts p join profiles pr on pr.id = p.user_id
-   where not p.hidden
+   where not p.hidden and not public.is_banned(p.user_id)
      and (p_before is null or p.created_at < p_before)
      and (p_tag is null or p.tags @> array[lower(p_tag)])
      and (p_scope <> 'following' or p.user_id = auth.uid()
@@ -664,7 +745,7 @@ create or replace function public.trending_tags(p_limit int default 12)
 returns table (tag text, uses bigint)
 language sql stable security invoker set search_path = public as $$
   select t.tag, count(*) from posts p, unnest(p.tags) as t(tag)
-   where not p.hidden and p.created_at > now() - interval '7 days'
+   where not p.hidden and not public.is_banned(p.user_id) and p.created_at > now() - interval '7 days'
    group by t.tag order by count(*) desc, t.tag limit least(greatest(p_limit, 1), 50)
 $$;
 
@@ -688,6 +769,273 @@ grant execute on function public.delete_my_account() to authenticated;
 -- Internal helpers aren't callable from the app.
 revoke all on function public.enforce_rate_limit(int, int, text) from public, anon, authenticated;
 
+-- ---------------------------------------------------------------- staff and moderation
+--
+-- Who can do what (you can only ever act on people ranked BELOW you, never on yourself):
+--   staff  see reports, hide or un-hide posts, dismiss reports
+--   mod    + delete any post or comment, turn off posting / comments / uploads / profile edits, bans up to 30 days
+--   admin  + bans of any length, make or remove mods and staff, read the staff log
+--   owner  + make or remove admins
+-- Owners are only made in the Supabase SQL editor (see SETUP.md), never from the app.
+
+-- Stops limited or banned people at the database, with a message the app can show as-is.
+create or replace function public.enforce_restrictions() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  who uuid := auth.uid();
+  r restrictions;
+  ending text;
+begin
+  if who is null then
+    return new;
+  end if;
+  -- Counters and other server-side updates aren't the person's own edits.
+  if tg_table_name = 'profiles' then
+    if new.id <> who or (new.username, new.display_name, new.pronouns, new.species, new.bio, new.avatar_path,
+                         new.banner_path, new.ref_path)
+                        is not distinct from (old.username, old.display_name, old.pronouns, old.species, old.bio,
+                                              old.avatar_path, old.banner_path, old.ref_path) then
+      return new;
+    end if;
+  elsif tg_table_name = 'posts' and tg_op = 'UPDATE' then
+    if new.user_id <> who or (new.caption, new.credit) is not distinct from (old.caption, old.credit) then
+      return new;
+    end if;
+  end if;
+  select * into r from restrictions where user_id = who and (until is null or until > now());
+  if not found then
+    return new;
+  end if;
+  ending := coalesce(' until ' || to_char(r.until, 'FMMon FMDD, YYYY'), '');
+  if r.banned then
+    raise exception 'Your account is banned%.', ending using errcode = 'P0403';
+  end if;
+  if tg_table_name = 'posts' then
+    if r.no_posting then
+      raise exception 'A moderator turned off posting for your account%.', ending using errcode = 'P0403';
+    end if;
+    if tg_op = 'INSERT' and r.no_uploads and (to_jsonb(new) ->> 'media_path') is not null then
+      raise exception 'A moderator turned off picture and video uploads for your account%.', ending using errcode = 'P0403';
+    end if;
+  elsif tg_table_name = 'comments' and r.no_comments then
+    raise exception 'A moderator turned off commenting for your account%.', ending using errcode = 'P0403';
+  elsif tg_table_name = 'profiles' and r.no_profile_edits then
+    raise exception 'A moderator turned off profile changes for your account%.', ending using errcode = 'P0403';
+  end if;
+  return new;
+end $$;
+revoke all on function public.enforce_restrictions() from public, anon, authenticated;
+
+create or replace trigger restrictions before insert or update on public.posts for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.comments for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before update on public.profiles for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.boops for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.follows for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.reports for each row execute function public.enforce_restrictions();
+
+-- The caller's rank, or an error if it's below what the action needs.
+create or replace function public.staff_require(min_rank int) returns int
+language plpgsql stable security definer set search_path = public as $$
+declare
+  mine int := staff_rank(auth.uid());
+begin
+  if mine < min_rank then
+    raise exception '%', case min_rank when 1 then 'Only staff can do that.' when 2 then 'Only mods and above can do that.'
+                                       when 3 then 'Only admins and the owner can do that.' else 'Only the owner can do that.' end
+      using errcode = '42501';
+  end if;
+  return mine;
+end $$;
+
+-- Staff may act on someone only when they outrank them (and never on themselves).
+create or replace function public.staff_check_target(mine int, target uuid) returns void
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if target is null or not exists (select 1 from profiles where id = target) then
+    raise exception 'That account doesn''t exist.' using errcode = 'P0002';
+  end if;
+  if target = auth.uid() then
+    raise exception 'You can''t do that to your own account.' using errcode = '42501';
+  end if;
+  if staff_rank(target) >= mine then
+    raise exception 'You can only act on people ranked below you.' using errcode = '42501';
+  end if;
+end $$;
+
+create or replace function public.staff_note(what text, target_user uuid, target_post uuid, details jsonb) returns void
+language sql security definer set search_path = public as $$
+  insert into staff_log (actor_id, action, target_user, target_post, details) values (auth.uid(), what, target_user, target_post, coalesce(details, '{}'))
+$$;
+
+-- Give someone a rank (staff, mod, admin) or take it away (null).
+create or replace function public.staff_set_role(target uuid, new_role text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  mine int := staff_require(3);
+  want int := case when new_role is null then 0 when new_role = 'admin' then 3 when new_role = 'mod' then 2
+                   when new_role = 'staff' then 1 else -1 end;
+begin
+  if want < 0 then
+    raise exception 'Pick staff, mod or admin.' using errcode = '22023';
+  end if;
+  perform staff_check_target(mine, target);
+  if want >= mine then
+    raise exception 'You can only hand out ranks below your own.' using errcode = '42501';
+  end if;
+  if new_role is null then
+    delete from staff where user_id = target;
+  else
+    insert into staff (user_id, role, granted_by, granted_at) values (target, new_role, auth.uid(), now())
+    on conflict (user_id) do update set role = excluded.role, granted_by = excluded.granted_by, granted_at = now();
+  end if;
+  perform staff_note('set_role', target, null, jsonb_build_object('role', new_role));
+end $$;
+
+-- Ban or limit an account. All false = lift everything. days null = no end date.
+create or replace function public.staff_restrict(target uuid, p_banned boolean, p_no_posting boolean, p_no_comments boolean,
+                                                 p_no_uploads boolean, p_no_profile_edits boolean, p_days int,
+                                                 p_reason text) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare
+  mine int := staff_require(2);
+  old restrictions;
+  ends timestamptz;
+  lifting boolean := not (coalesce(p_banned, false) or coalesce(p_no_posting, false) or coalesce(p_no_comments, false)
+                          or coalesce(p_no_uploads, false) or coalesce(p_no_profile_edits, false));
+begin
+  perform staff_check_target(mine, target);
+  if p_days is not null and (p_days < 1 or p_days > 3650) then
+    raise exception 'Pick between 1 day and 10 years, or no end date.' using errcode = '22023';
+  end if;
+  if char_length(coalesce(p_reason, '')) > 300 then
+    raise exception 'Keep the reason under 300 characters.' using errcode = '22023';
+  end if;
+  select * into old from restrictions where user_id = target;
+  if mine < 3 and found and old.banned and old.until is null then
+    raise exception 'Only admins and the owner can change a permanent ban.' using errcode = '42501';
+  end if;
+  if mine < 3 and coalesce(p_banned, false) and (p_days is null or p_days > 30) then
+    raise exception 'Mods can ban for up to 30 days. Ask an admin for longer.' using errcode = '42501';
+  end if;
+  ends := case when p_days is null then null else now() + make_interval(days => p_days) end;
+  if lifting then
+    delete from restrictions where user_id = target;
+  else
+    insert into restrictions (user_id, banned, no_posting, no_comments, no_uploads, no_profile_edits, reason, until, set_by, set_at)
+    values (target, coalesce(p_banned, false), coalesce(p_no_posting, false), coalesce(p_no_comments, false),
+            coalesce(p_no_uploads, false), coalesce(p_no_profile_edits, false), btrim(coalesce(p_reason, '')), ends, auth.uid(), now())
+    on conflict (user_id) do update set banned = excluded.banned, no_posting = excluded.no_posting,
+      no_comments = excluded.no_comments, no_uploads = excluded.no_uploads, no_profile_edits = excluded.no_profile_edits,
+      reason = excluded.reason, until = excluded.until, set_by = excluded.set_by, set_at = now();
+  end if;
+  -- Also stop (or allow) logging in, so a ban takes effect on every device.
+  begin
+    update auth.users set banned_until = case when coalesce(p_banned, false) then coalesce(ends, now() + interval '100 years') end
+     where id = target;
+  exception when undefined_column then
+    null;
+  end;
+  perform staff_note(case when lifting then 'lift' when p_banned then 'ban' else 'limit' end, target, null,
+                     jsonb_build_object('no_posting', p_no_posting, 'no_comments', p_no_comments, 'no_uploads', p_no_uploads,
+                                        'no_profile_edits', p_no_profile_edits, 'days', p_days, 'reason', p_reason));
+end $$;
+
+create or replace function public.staff_set_post_hidden(p_post uuid, p_hidden boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  mine int := staff_require(1);
+  author uuid;
+begin
+  select user_id into author from posts where id = p_post;
+  if not found then
+    raise exception 'That post is gone.' using errcode = 'P0002';
+  end if;
+  perform staff_check_target(mine, author);
+  update posts set hidden = coalesce(p_hidden, true) where id = p_post;
+  perform staff_note(case when p_hidden then 'hide_post' else 'unhide_post' end, author, p_post, null);
+end $$;
+
+-- Returns the post's file path so the app can remove the file too.
+create or replace function public.staff_delete_post(p_post uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  mine int := staff_require(2);
+  p posts;
+begin
+  select * into p from posts where id = p_post;
+  if not found then
+    raise exception 'That post is gone.' using errcode = 'P0002';
+  end if;
+  perform staff_check_target(mine, p.user_id);
+  delete from posts where id = p_post;
+  perform staff_note('delete_post', p.user_id, p_post, jsonb_build_object('caption', left(p.caption, 200)));
+  return p.media_path;
+end $$;
+
+create or replace function public.staff_delete_comment(p_comment uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  mine int := staff_require(2);
+  c comments;
+begin
+  select * into c from comments where id = p_comment;
+  if not found then
+    return;
+  end if;
+  perform staff_check_target(mine, c.user_id);
+  delete from comments where id = p_comment;
+  perform staff_note('delete_comment', c.user_id, c.post_id, jsonb_build_object('body', left(c.body, 200)));
+end $$;
+
+-- "Looks fine": clear a post's reports and show it again.
+create or replace function public.staff_dismiss_reports(p_post uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  mine int := staff_require(1);
+  author uuid;
+begin
+  select user_id into author from posts where id = p_post;
+  if not found then
+    raise exception 'That post is gone.' using errcode = 'P0002';
+  end if;
+  perform staff_check_target(mine, author);
+  delete from reports where post_id = p_post;
+  update posts set reports_count = 0, hidden = false where id = p_post;
+  perform staff_note('dismiss_reports', author, p_post, null);
+end $$;
+
+-- Reported posts, most recently reported first.
+create or replace function public.staff_reports()
+returns table (post_id uuid, reports bigint, reasons text[], last_report timestamptz, hidden boolean, caption text,
+               media_path text, media_type text, user_id uuid, username text, display_name text, avatar_path text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform staff_require(1);
+  return query
+    select p.id, count(r.*), array_agg(distinct r.reason), max(r.created_at), p.hidden, p.caption, p.media_path,
+           p.media_type, p.user_id, pr.username, pr.display_name, pr.avatar_path
+      from reports r join posts p on p.id = r.post_id join profiles pr on pr.id = p.user_id
+     group by p.id, pr.id
+     order by max(r.created_at) desc
+     limit 100;
+end $$;
+
+do $$
+declare
+  f text;
+begin
+  foreach f in array array['staff_set_role(uuid, text)',
+                           'staff_restrict(uuid, boolean, boolean, boolean, boolean, boolean, int, text)',
+                           'staff_set_post_hidden(uuid, boolean)', 'staff_delete_post(uuid)', 'staff_delete_comment(uuid)',
+                           'staff_dismiss_reports(uuid)', 'staff_reports()'] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+  foreach f in array array['staff_require(int)', 'staff_check_target(int, uuid)', 'staff_note(text, uuid, uuid, jsonb)'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+  end loop;
+end $$;
+
 -- ---------------------------------------------------------------- media storage
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -699,16 +1047,19 @@ on conflict (id) do update set public = excluded.public, file_size_limit = exclu
 -- Uploads only into your own folder: media/<your user id>/...
 drop policy if exists media_insert_own on storage.objects;
 create policy media_insert_own on storage.objects for insert to authenticated
-  with check (bucket_id = 'media' and (storage.foldername(name))[1] = auth.uid()::text);
+  with check (bucket_id = 'media' and (storage.foldername(name))[1] = auth.uid()::text
+              and not public.my_restriction('upload'));
 drop policy if exists media_update_own on storage.objects;
 create policy media_update_own on storage.objects for update to authenticated
   using (bucket_id = 'media' and (storage.foldername(name))[1] = auth.uid()::text);
 drop policy if exists media_delete_own on storage.objects;
 create policy media_delete_own on storage.objects for delete to authenticated
-  using (bucket_id = 'media' and (storage.foldername(name))[1] = auth.uid()::text);
+  using (bucket_id = 'media' and ((storage.foldername(name))[1] = auth.uid()::text
+                                  or public.staff_rank(auth.uid()) >= 2));
 drop policy if exists media_list_own on storage.objects;
 create policy media_list_own on storage.objects for select to authenticated
-  using (bucket_id = 'media' and (storage.foldername(name))[1] = auth.uid()::text);
+  using (bucket_id = 'media' and ((storage.foldername(name))[1] = auth.uid()::text
+                                  or public.staff_rank(auth.uid()) >= 2));
 
 -- ---------------------------------------------------------------- hardening (Supabase security advisor)
 

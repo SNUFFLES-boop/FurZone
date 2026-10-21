@@ -3,6 +3,7 @@
 import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field } from '../ui.js';
 import { captionParts, compactCount, timeAgo, hueOf } from '../format.js';
 import { app, savePref } from '../state.js';
+import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
 
 const REPORT_REASONS = ['Spam or scam', 'NSFW / not safe for work', 'Harassment or hate', 'Stolen art (no credit)', 'Something else'];
 
@@ -34,7 +35,7 @@ export function nameLine(user) {
     return h(
         'span',
         { class: 'name-line' },
-        h('span', { class: 'name-top' }, h('strong', { text: user.display_name || user.username }), badges(user.connections)),
+        h('span', { class: 'name-top' }, h('strong', { text: user.display_name || user.username }), badges(user.connections), roleBadge(user.role)),
         h('span', { class: 'name-sub', text: sub ? `@${user.username} · ${sub}` : `@${user.username}` })
     );
 }
@@ -248,6 +249,39 @@ function postMenu(post, isMine, slide, onRemoved) {
                 )
             );
         } else {
+            if (myRank() >= 1 && outranks(post.user.role, post.user.id)) {
+                const staffItems = [
+                    h('p', { class: 'menu-label', text: 'Staff' }),
+                    item('eyeOff', 'Hide post (staff)', async () => {
+                        try {
+                            await app.backend.staffSetHidden(post.id, true);
+                            toast('Post hidden from everyone but staff', 'success');
+                            if (onRemoved) onRemoved(post);
+                        } catch (e) {
+                            toast(errorText(e), 'error');
+                        }
+                    }),
+                    myRank() >= 2 &&
+                        item(
+                            'trash',
+                            'Delete post (staff)',
+                            async () => {
+                                if (!(await confirmDialog('Delete this post?', 'It is removed for everyone, with its boops and comments.', { ok: 'Delete', danger: true }))) return;
+                                try {
+                                    await app.backend.staffDeletePost(post.id);
+                                    toast('Post deleted', 'success');
+                                    if (onRemoved) onRemoved(post);
+                                } catch (e) {
+                                    toast(errorText(e), 'error');
+                                }
+                            },
+                            true
+                        ),
+                    item('shieldCheck', `Staff tools for @${post.user.username}`, () => staffTools(post.user)),
+                    h('div', { class: 'menu-sep' })
+                ];
+                body.append(...staffItems.filter(Boolean));
+            }
             body.append(
                 item('user', `View @${post.user.username}`, () => (location.hash = `#/u/${post.user.username}`)),
                 item('flag', 'Report post', () => reportPost(post, slide, onRemoved), true),
@@ -330,7 +364,8 @@ export function openComments(post, onChange) {
             const form = h('form', { class: 'comment-form' }, avatar(app.me, 'sm', app.me.avatar_url), input, send);
 
             function row(c) {
-                const canDelete = c.user.id === app.me.id || post.user.id === app.me.id;
+                const own = c.user.id === app.me.id || post.user.id === app.me.id;
+                const canDelete = own || (myRank() >= 2 && outranks(c.user.role, c.user.id));
                 const el = h(
                     'div',
                     { class: 'comment' },
@@ -347,7 +382,7 @@ export function openComments(post, onChange) {
                             'aria-label': 'Delete comment',
                             onclick: async () => {
                                 try {
-                                    await app.backend.deleteComment(c.id);
+                                    await (own ? app.backend.deleteComment(c.id) : app.backend.staffDeleteComment(c.id));
                                     el.remove();
                                     post.comments = Math.max(0, post.comments - 1);
                                     onChange && onChange();

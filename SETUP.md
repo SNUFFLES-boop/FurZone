@@ -97,7 +97,29 @@ for this** (never your main account).
   cap what any one account can do. For very large traffic, upgrade the Supabase plan and turn on CAPTCHA
   (Authentication → Attack Protection).
 
-## Moderation
+## Moderation and staff
 
-Reports are stored in the `reports` table (only visible in the Supabase dashboard). To ban someone, delete
-their user in **Authentication → Users**; everything they posted is removed with them.
+FurZone has four staff ranks. Each one can do everything the ranks below it can, and only ever to people ranked
+**below** them (never to themselves):
+
+| Rank  | Can |
+|-------|-----|
+| Staff | see reports (Settings → Staff → Reports), hide or show posts, mark reports as fine |
+| Mod   | + delete any post or comment, turn off posting / comments / uploads / profile changes, ban for up to 30 days |
+| Admin | + ban for any length or forever, make or remove mods and staff, read the staff log |
+| Owner | + make or remove admins |
+
+Staff ranks show as a badge next to the name. To use the tools: open someone's profile → **⋯** → **Staff tools**,
+or a post's **⋯** menu. Every staff action is written to the staff log.
+
+**Making yourself owner** (once, in Supabase → SQL Editor; change `yourname` to your FurZone username):
+
+```sql
+insert into public.staff (user_id, role)
+select id, 'owner' from public.profiles where username = 'yourname'
+on conflict (user_id) do update set role = 'owner';
+```
+
+A ban logs the person out everywhere and hides their posts and comments from everyone but staff. Five reports
+from different people still hide a post automatically until staff review it. Deleting someone in
+**Authentication → Users** removes them and everything they posted.

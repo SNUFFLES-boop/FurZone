@@ -1,7 +1,7 @@
 // The real backend: Supabase (Postgres + Auth + Storage + one Edge Function). Every rule that matters for
 // security lives in the database (supabase/schema.sql); this file only shapes requests and answers.
 import { createClient } from '@supabase/supabase-js';
-import { normalizePost, normalizeProfile, mediaPath } from './shape.js';
+import { normalizePost, normalizeProfile, normalizeRestriction, mediaPath } from './shape.js';
 
 const BUCKET = 'media';
 
@@ -42,6 +42,17 @@ export function createSupabaseBackend(url, anonKey) {
             map.get(r.user_id).push(r.provider);
         }
         return map;
+    }
+
+    async function rolesOf(ids) {
+        if (!ids.length) return new Map();
+        const rows = await must(client.from('staff').select('user_id, role').in('user_id', ids));
+        return new Map(rows.map((r) => [r.user_id, r.role]));
+    }
+
+    async function roleOf(id) {
+        const row = await must(client.from('staff').select('role').eq('user_id', id).maybeSingle());
+        return row ? row.role : null;
     }
 
     /** Uploads with progress (supabase-js can't report it), straight to Storage's REST endpoint. */
@@ -157,15 +168,19 @@ export function createSupabaseBackend(url, anonKey) {
 
         async me() {
             const id = await userId();
-            const row = await must(client.from('profiles').select('*').eq('id', id).single());
-            const conns = await connectionsOf([id]);
-            return shapeProfile({ ...row, connections: conns.get(id) || [] });
+            const [row, conns, role, restriction] = await Promise.all([
+                must(client.from('profiles').select('*').eq('id', id).single()),
+                connectionsOf([id]),
+                roleOf(id),
+                must(client.from('restrictions').select('*').eq('user_id', id).maybeSingle())
+            ]);
+            return shapeProfile({ ...row, connections: conns.get(id) || [], role, restriction });
         },
         async profileByUsername(username) {
             const row = await must(client.from('profiles').select('*').eq('username', String(username).toLowerCase()).maybeSingle());
             if (!row) return null;
-            const conns = await connectionsOf([row.id]);
-            return shapeProfile({ ...row, connections: conns.get(row.id) || [] });
+            const [conns, role] = await Promise.all([connectionsOf([row.id]), roleOf(row.id)]);
+            return shapeProfile({ ...row, connections: conns.get(row.id) || [], role });
         },
         async connections(userIdArg) {
             return must(client.from('connections').select('provider, handle, external_id, verified_at').eq('user_id', userIdArg));
@@ -211,16 +226,18 @@ export function createSupabaseBackend(url, anonKey) {
 
         async feed({ scope = 'all', before = null, limit = 8, tag = null } = {}) {
             const rows = await must(client.rpc('feed', { p_scope: scope, p_before: before, p_limit: limit, p_tag: tag }));
-            return rows.map(shapePost);
+            const roles = await rolesOf([...new Set(rows.map((r) => r.user_id))]);
+            return rows.map((r) => shapePost({ ...r, role: roles.get(r.user_id) || null }));
         },
         async post(id) {
             const row = await must(client.from('posts').select(`*, profiles!inner(${PROFILE_COLS})`).eq('id', id).maybeSingle());
             if (!row) return null;
             const me = await userId();
-            const [booped, following, conns] = await Promise.all([
+            const [booped, following, conns, role] = await Promise.all([
                 client.from('boops').select('post_id').eq('post_id', id).eq('user_id', me).maybeSingle(),
                 client.from('follows').select('followee_id').eq('follower_id', me).eq('followee_id', row.user_id).maybeSingle(),
-                connectionsOf([row.user_id])
+                connectionsOf([row.user_id]),
+                roleOf(row.user_id)
             ]);
             return shapePost({
                 ...row,
@@ -228,7 +245,8 @@ export function createSupabaseBackend(url, anonKey) {
                 id: row.id,
                 booped: !!booped.data,
                 following: !!following.data,
-                connections: conns.get(row.user_id) || []
+                connections: conns.get(row.user_id) || [],
+                role
             });
         },
         async userPosts(userIdArg, before = null) {
@@ -378,6 +396,74 @@ export function createSupabaseBackend(url, anonKey) {
             }
             return data;
         },
+        // ---- staff (every rule is checked again by the database) ----
+        async staffRestriction(userIdArg) {
+            return normalizeRestriction(await must(client.from('restrictions').select('*').eq('user_id', userIdArg).maybeSingle()));
+        },
+        async staffRestrict(userIdArg, c) {
+            await must(
+                client.rpc('staff_restrict', {
+                    target: userIdArg,
+                    p_banned: !!c.banned,
+                    p_no_posting: !!c.no_posting,
+                    p_no_comments: !!c.no_comments,
+                    p_no_uploads: !!c.no_uploads,
+                    p_no_profile_edits: !!c.no_profile_edits,
+                    p_days: c.days || null,
+                    p_reason: c.reason || ''
+                })
+            );
+        },
+        async staffSetRole(userIdArg, role) {
+            await must(client.rpc('staff_set_role', { target: userIdArg, new_role: role || null }));
+        },
+        async staffSetHidden(postId, hidden) {
+            await must(client.rpc('staff_set_post_hidden', { p_post: postId, p_hidden: hidden }));
+        },
+        async staffDeletePost(postId) {
+            const path = await must(client.rpc('staff_delete_post', { p_post: postId }));
+            if (path) await client.storage.from(BUCKET).remove([path]);
+        },
+        async staffDeleteComment(commentId) {
+            await must(client.rpc('staff_delete_comment', { p_comment: commentId }));
+        },
+        async staffDismiss(postId) {
+            await must(client.rpc('staff_dismiss_reports', { p_post: postId }));
+        },
+        async staffReports() {
+            const rows = await must(client.rpc('staff_reports'));
+            return rows.map((r) => ({
+                post: { id: r.post_id, caption: r.caption || '', media_url: mediaUrl(r.media_path), media_type: r.media_type, hidden: r.hidden },
+                user: shapeProfile({ id: r.user_id, username: r.username, display_name: r.display_name, avatar_path: r.avatar_path }),
+                reports: Number(r.reports) || 0,
+                reasons: r.reasons || [],
+                last_report: r.last_report
+            }));
+        },
+        async staffTeam() {
+            const rows = await must(
+                client.from('staff').select(`role, granted_at, user:profiles!staff_user_id_fkey(${PROFILE_COLS})`).order('granted_at', { ascending: true })
+            );
+            const order = { owner: 0, admin: 1, mod: 2, staff: 3 };
+            return rows
+                .map((r) => ({ role: r.role, granted_at: r.granted_at, user: shapeProfile(r.user) }))
+                .sort((a, b) => order[a.role] - order[b.role]);
+        },
+        async staffLog() {
+            const rows = await must(
+                client
+                    .from('staff_log')
+                    .select(
+                        `id, action, target_post, details, created_at,
+                         actor:profiles!staff_log_actor_id_fkey(${PROFILE_COLS}),
+                         target:profiles!staff_log_target_user_fkey(${PROFILE_COLS})`
+                    )
+                    .order('created_at', { ascending: false })
+                    .limit(200)
+            );
+            return rows.map((r) => ({ ...r, actor: shapeProfile(r.actor), target: shapeProfile(r.target) }));
+        },
+
         async unlink(provider) {
             const id = await userId();
             if (provider === 'discord') {

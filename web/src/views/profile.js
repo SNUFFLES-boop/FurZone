@@ -4,6 +4,7 @@ import { compactCount, hueOf, validUsername, prepareImage, mediaKind } from '../
 import { captionNode, badges } from './postcard.js';
 import { connectionsSection } from './connect.js';
 import { openExternal } from '../platform.js';
+import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
 
 export function renderProfile(view, ctx, username) {
     const page = h('div', { class: 'page profile' }, spinner());
@@ -54,7 +55,7 @@ export function renderProfile(view, ctx, username) {
                 });
             actions.append(
                 follow,
-                h('button', { class: 'icon-btn ghost-btn', 'aria-label': 'More', onclick: () => profileMenu(p, ctx) }, icon('more'))
+                h('button', { class: 'icon-btn ghost-btn', 'aria-label': 'More', onclick: () => profileMenu(p, ctx, load) }, icon('more'))
             );
         }
         const followers = h('strong', { text: compactCount(p.followers_count) });
@@ -73,7 +74,7 @@ export function renderProfile(view, ctx, username) {
             h(
                 'div',
                 { class: 'profile-id' },
-                h('h1', null, h('span', { text: p.display_name || p.username }), badges(p.connections, 'md')),
+                h('h1', null, h('span', { text: p.display_name || p.username }), badges(p.connections, 'md'), roleBadge(p.role, 'md')),
                 h('p', { class: 'handle', text: '@' + p.username }),
                 chips.length ? h('div', { class: 'pills' }, chips) : null,
                 p.bio && captionNode(p.bio, 'bio'),
@@ -145,8 +146,13 @@ function viewImage(url, label) {
     sheet(label, h('img', { class: 'full-image', src: url, alt: label }), { tall: true });
 }
 
-function profileMenu(p, ctx) {
+function profileMenu(p, ctx, reload) {
     sheet(`@${p.username}`, (body, close) => {
+        if (myRank() >= 1 && outranks(p.role, p.id)) {
+            body.append(
+                h('button', { class: 'menu-item', onclick: () => (close(), staffTools(p, reload)) }, icon('shieldCheck'), h('span', { text: 'Staff tools' }))
+            );
+        }
         body.append(
             h(
                 'button',

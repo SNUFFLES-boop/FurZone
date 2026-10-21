@@ -226,6 +226,7 @@ export function errorText(error) {
     if (/rate limit|too many requests|429/i.test(msg)) return 'Too many tries. Wait a minute and try again.';
     if (/Failed to fetch|NetworkError|network/i.test(msg)) return "Can't reach the server. Check your connection.";
     if (/JWT|session.*(expired|missing)|not logged in/i.test(msg)) return 'Your session ended. Log in again.';
+    if (/User is banned/i.test(msg)) return 'This account is banned.';
     if (/Database error saving new user/i.test(msg)) return "Couldn't create the account. Try another username.";
     return msg.length && msg.length < 160 ? msg : 'Something went wrong. Try again.';
 }
