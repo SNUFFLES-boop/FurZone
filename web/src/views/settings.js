@@ -1,4 +1,5 @@
-import { h, icon, avatar, toast, errorText, withBusy, field, sheet, confirmDialog, spinner } from '../ui.js';
+import { h, icon, avatar, toast, errorText, withBusy, field, sheet, confirmDialog, spinner, segmented, fill } from '../ui.js';
+import { look, setLook, resetLook, THEMES, BACKGROUNDS, AMOUNTS, TEXT_SIZES } from '../look.js';
 import { app, savePref } from '../state.js';
 import { passwordStrength } from '../format.js';
 import { connectionsSection } from './connect.js';
@@ -11,15 +12,52 @@ export function renderSettings(view) {
     const group = (title, ...rows) => h('section', { class: 'settings-group' }, h('h2', { text: title }), h('div', { class: 'settings-card' }, rows));
     const item = (ic, label, onclick, extra) =>
         h('button', { class: 'settings-item', onclick }, icon(ic), h('span', { class: 'grow', text: label }), extra || icon('chevron', 'faint'));
+    const toggle = (ic, label, sub, checked, onchange) => {
+        const input = h('input', { type: 'checkbox', role: 'switch', class: 'switch' });
+        input.checked = checked;
+        input.onchange = () => onchange(input.checked, input);
+        return h('label', { class: 'settings-item' }, icon(ic), h('span', { class: 'grow settings-label' }, h('span', { text: label }), sub && h('small', { text: sub })), input);
+    };
+    /** A labelled row of choices (segmented buttons) inside a settings card. */
+    const choice = (ic, label, options, value, onPick) => {
+        const holder = h('div', { class: 'settings-choice' });
+        const draw = (v) => fill(holder, h('div', { class: 'settings-choice-head' }, icon(ic), h('span', { text: label })), segmented(options, v, (nv) => (onPick(nv), draw(nv)), label));
+        draw(value);
+        return holder;
+    };
 
-    const mutedToggle = h('input', { type: 'checkbox', role: 'switch', class: 'switch' });
-    mutedToggle.checked = !app.muted;
-    mutedToggle.onchange = () => savePref('muted', !mutedToggle.checked);
+    const page = h('div', { class: 'page settings' });
+    view.append(page);
 
-    view.append(
-        h(
-            'div',
-            { class: 'page settings' },
+    function swatches() {
+        const holder = h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': 'Colour theme' });
+        const paint = () =>
+            fill(
+                holder,
+                Object.entries(THEMES).map(([key, t]) => {
+                    const on = look().theme === key;
+                    return h(
+                        'button',
+                        {
+                            class: 'swatch' + (on ? ' on' : ''),
+                            role: 'radio',
+                            'aria-checked': String(on),
+                            style: { '--a': `rgb(${t.colors[0]})`, '--b': `rgb(${t.colors[1]})`, '--c': `rgb(${t.colors[2]})` },
+                            onclick: () => (setLook({ theme: key }), paint())
+                        },
+                        h('span', { class: 'swatch-dot' }, on && icon('check')),
+                        h('span', { class: 'swatch-name', text: t.label })
+                    );
+                })
+            );
+        paint();
+        return holder;
+    }
+
+    function draw() {
+        const L = look();
+        fill(
+            page,
             h('h1', { class: 'page-title', text: 'Settings' }),
             h(
                 'a',
@@ -33,7 +71,62 @@ export function renderSettings(view) {
                 item('edit', 'Edit profile', () => editProfile(app.me, () => {})),
                 item('lock', 'Change password', changePassword)
             ),
+            group(
+                'Privacy',
+                toggle('lock', 'Private account', 'Only followers you approve can see your posts.', !!app.me.is_private, async (on, input) => {
+                    if (!on && !(await confirmDialog('Make your account public?', 'Anyone will be able to see your posts, and everyone waiting for approval becomes a follower.', { ok: 'Make public' }))) {
+                        input.checked = true;
+                        return;
+                    }
+                    try {
+                        app.me = await app.backend.updatePrivacy({ is_private: on });
+                        toast(on ? 'Your account is private now 🔒' : 'Your account is public now', 'success');
+                    } catch (e) {
+                        input.checked = !on;
+                        toast(errorText(e), 'error');
+                    }
+                }),
+                choice(
+                    'mail',
+                    'Who can message me',
+                    [
+                        ['everyone', 'Everyone'],
+                        ['following', 'People I follow'],
+                        ['nobody', 'No one new']
+                    ],
+                    app.me.dm_policy || 'everyone',
+                    async (v) => {
+                        try {
+                            app.me = await app.backend.updatePrivacy({ dm_policy: v });
+                            toast('Saved', 'success');
+                        } catch (e) {
+                            toast(errorText(e), 'error');
+                            draw();
+                        }
+                    }
+                ),
+                h(
+                    'p',
+                    { class: 'settings-note' },
+                    icon('shield'),
+                    'People you follow can always message you. Messages from anyone else wait in Requests until you accept them, and they can\'t see that you read them.'
+                )
+            ),
             group('Connected accounts', h('div', { class: 'pad-sm' }, connectionsSection())),
+            group(
+                'Appearance',
+                h('div', { class: 'settings-choice' }, h('div', { class: 'settings-choice-head' }, icon('palette'), h('span', { text: 'Colour theme' })), swatches()),
+                choice('sparkles', 'Background', BACKGROUNDS, L.background, (v) => setLook({ background: v })),
+                choice('filter', 'How many', AMOUNTS, L.amount, (v) => setLook({ amount: v })),
+                choice('edit', 'Text size', TEXT_SIZES.map(([v, label]) => [v, label]), L.text, (v) => setLook({ text: v })),
+                toggle('heart', 'Calm motion', 'Fewer animations and a still background. Easier on the eyes and the battery.', L.motion === 'calm', (on) => setLook({ motion: on ? 'calm' : 'full' })),
+                item('refresh', 'Reset appearance', () => (resetLook(), draw(), toast('Back to the default look', 'success')), h('span'))
+            ),
+            group(
+                'Videos',
+                toggle('video', 'Play videos automatically', 'In the feed. Tap a video to play it when this is off.', L.autoplay, (on) => setLook({ autoplay: on })),
+                toggle('volume', 'Play videos with sound', null, !app.muted, (on) => savePref('muted', !on))
+            ),
             myRank() >= 1 &&
                 group(
                     'Staff',
@@ -41,12 +134,17 @@ export function renderSettings(view) {
                     h('a', { class: 'settings-item', href: '#/staff/team' }, icon('shieldCheck'), h('span', { class: 'grow', text: 'Team' }), icon('chevron', 'faint')),
                     myRank() >= 3 && h('a', { class: 'settings-item', href: '#/staff/log' }, icon('copy'), h('span', { class: 'grow', text: 'Staff log' }), icon('chevron', 'faint'))
                 ),
-            group('Safety', item('ban', 'Blocked accounts', blockedList), h('p', { class: 'settings-note' }, icon('shield'), 'FurZone is safe-for-work only. Report posts that break the rules: five reports hide a post until a moderator checks it.')),
             group(
-                'App',
-                h('label', { class: 'settings-item' }, icon('volume'), h('span', { class: 'grow', text: 'Play videos with sound' }), mutedToggle),
-                h('div', { class: 'pad-sm' }, updateSection())
+                'Safety',
+                item('ban', 'Blocked accounts', blockedList),
+                h(
+                    'p',
+                    { class: 'settings-note' },
+                    icon('shield'),
+                    'FurZone is safe-for-work only. Report posts that break the rules: five reports hide a post until a moderator checks it. When 3 or more people report an account, everyone sees a warning label on it.'
+                )
             ),
+            group('App', h('div', { class: 'pad-sm' }, updateSection())),
             group(
                 'Session',
                 item('logout', 'Log out', async () => {
@@ -55,8 +153,9 @@ export function renderSettings(view) {
                 item('trash', 'Delete my account', deleteAccount, h('span'))
             ),
             h('p', { class: 'fine center', text: `FurZone ${VERSION}${app.backend.kind === 'demo' ? ' · demo mode' : ''}` })
-        )
-    );
+        );
+    }
+    draw();
 }
 
 function changePassword() {

@@ -191,7 +191,6 @@ export function renderLogin(root, { useBackend, createDemoBackend }) {
         h(
             'div',
             { class: 'auth' },
-            h('div', { class: 'auth-bg', 'aria-hidden': 'true' }, Array.from({ length: 12 }, (_, i) => h('span', { class: 'float-paw', style: { '--i': String(i) } }, icon('paw')))),
             h(
                 'div',
                 { class: 'auth-inner' },

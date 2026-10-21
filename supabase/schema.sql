@@ -173,6 +173,26 @@ create table if not exists public.staff_log (
 );
 create index if not exists staff_log_created_idx on public.staff_log (created_at desc);
 
+-- Privacy: a private account's posts are only for its approved followers. dm_policy: who may message you.
+alter table public.profiles add column if not exists is_private boolean not null default false;
+alter table public.profiles add column if not exists dm_policy text not null default 'everyone';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'profiles_dm_policy_check') then
+    alter table public.profiles add constraint profiles_dm_policy_check check (dm_policy in ('everyone', 'following', 'nobody'));
+  end if;
+end $$;
+
+-- "Can I follow you?" for private accounts. The person approves or declines.
+create table if not exists public.follow_requests (
+  requester_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  target_id uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (requester_id, target_id),
+  constraint follow_requests_not_self check (requester_id <> target_id)
+);
+create index if not exists follow_requests_target_idx on public.follow_requests (target_id, created_at desc);
+
 -- ---------------------------------------------------------------- privileges
 -- Supabase grants everything on new tables to anon and authenticated by default; take it back and hand
 -- out only what the app needs. Logged-out visitors (anon) get nothing.
@@ -203,6 +223,9 @@ grant update (read_at) on public.notifications to authenticated;
 grant delete on public.connections to authenticated;
 -- Staff tables are read-only from the app; every change goes through the staff_* functions below.
 grant select on public.staff, public.restrictions, public.staff_log to authenticated;
+grant update (is_private, dm_policy) on public.profiles to authenticated;
+revoke all on public.follow_requests from anon, authenticated;
+grant select, delete on public.follow_requests to authenticated;
 
 -- ---------------------------------------------------------------- blocking helper
 
@@ -242,6 +265,23 @@ $$;
 revoke all on function public.my_restriction(text) from public, anon;
 grant execute on function public.my_restriction(text) to authenticated;
 
+create or replace function public.is_private_account(uid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select is_private from profiles where id = uid), false)
+$$;
+revoke all on function public.is_private_account(uuid) from public, anon;
+grant execute on function public.is_private_account(uuid) to authenticated;
+
+-- May the logged-in person see this person's posts? Public accounts: yes. Private: only you and your followers.
+create or replace function public.can_see_posts_of(owner uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select owner = auth.uid()
+      or not coalesce((select is_private from profiles where id = owner), false)
+      or exists (select 1 from follows where follower_id = auth.uid() and followee_id = owner)
+$$;
+revoke all on function public.can_see_posts_of(uuid) from public, anon;
+grant execute on function public.can_see_posts_of(uuid) to authenticated;
+
 -- ---------------------------------------------------------------- row level security
 
 alter table public.profiles enable row level security;
@@ -256,6 +296,7 @@ alter table public.connections enable row level security;
 alter table public.staff enable row level security;
 alter table public.restrictions enable row level security;
 alter table public.staff_log enable row level security;
+alter table public.follow_requests enable row level security;
 alter table private.vrchat_link_codes enable row level security;
 alter table private.vrchat_session enable row level security;
 
@@ -269,7 +310,8 @@ create policy profiles_update_own on public.profiles for update to authenticated
 drop policy if exists posts_read on public.posts;
 create policy posts_read on public.posts for select to authenticated
   using (user_id = auth.uid() or public.staff_rank(auth.uid()) >= 1
-         or (not hidden and not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)));
+         or (not hidden and not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)
+             and public.can_see_posts_of(user_id)));
 drop policy if exists posts_insert_own on public.posts;
 create policy posts_insert_own on public.posts for insert to authenticated with check (user_id = auth.uid());
 drop policy if exists posts_update_own on public.posts;
@@ -291,7 +333,8 @@ create policy boops_delete_own on public.boops for delete to authenticated using
 drop policy if exists comments_read on public.comments;
 create policy comments_read on public.comments for select to authenticated
   using (user_id = auth.uid() or public.staff_rank(auth.uid()) >= 1
-         or (not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)));
+         or (not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)
+             and exists (select 1 from public.posts p where p.id = post_id)));
 drop policy if exists comments_insert_own on public.comments;
 create policy comments_insert_own on public.comments for insert to authenticated with check (
   user_id = auth.uid()
@@ -307,7 +350,14 @@ drop policy if exists follows_read on public.follows;
 create policy follows_read on public.follows for select to authenticated using (true);
 drop policy if exists follows_insert_own on public.follows;
 create policy follows_insert_own on public.follows for insert to authenticated
-  with check (follower_id = auth.uid() and not public.is_blocked(auth.uid(), followee_id));
+  with check (follower_id = auth.uid() and not public.is_blocked(auth.uid(), followee_id)
+              and not public.is_private_account(followee_id));
+drop policy if exists follow_requests_read on public.follow_requests;
+create policy follow_requests_read on public.follow_requests for select to authenticated
+  using (requester_id = auth.uid() or target_id = auth.uid());
+drop policy if exists follow_requests_delete on public.follow_requests;
+create policy follow_requests_delete on public.follow_requests for delete to authenticated
+  using (requester_id = auth.uid() or target_id = auth.uid());
 drop policy if exists follows_delete_own on public.follows;
 create policy follows_delete_own on public.follows for delete to authenticated using (follower_id = auth.uid());
 
@@ -381,6 +431,12 @@ begin
     when 'comment_boops' then
       perform enforce_rate_limit((select count(*)::int from comment_boops
         where user_id = new.user_id and created_at > now() - interval '10 minutes'), 300, 'likes');
+    when 'chat_messages' then
+      perform enforce_rate_limit((select count(*)::int from chat_messages
+        where user_id = new.user_id and created_at > now() - interval '1 minute'), 20, 'chat messages');
+    when 'user_reports' then
+      perform enforce_rate_limit((select count(*)::int from user_reports
+        where reporter_id = new.reporter_id and created_at > now() - interval '1 day'), 20, 'reports');
     else
       null;
   end case;
@@ -509,6 +565,8 @@ begin
   delete from follows where (follower_id = new.blocker_id and followee_id = new.blocked_id)
                          or (follower_id = new.blocked_id and followee_id = new.blocker_id);
   delete from notifications where (user_id = new.blocker_id and actor_id = new.blocked_id);
+  delete from follow_requests where (requester_id = new.blocker_id and target_id = new.blocked_id)
+                                 or (requester_id = new.blocked_id and target_id = new.blocker_id);
   return null;
 end $$;
 drop trigger if exists blocks_cleanup on public.blocks;
@@ -775,6 +833,450 @@ grant execute on function public.delete_my_account() to authenticated;
 -- Internal helpers aren't callable from the app.
 revoke all on function public.enforce_rate_limit(int, int, text) from public, anon, authenticated;
 
+-- ---------------------------------------------------------------- private accounts
+
+-- Ask to follow a private account (public accounts are followed straight away by the app).
+create or replace function public.request_follow(target uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+begin
+  if me is null then
+    raise exception 'Not logged in.' using errcode = '42501';
+  end if;
+  if target is null or target = me or not exists (select 1 from profiles where id = target) then
+    raise exception 'That account doesn''t exist.' using errcode = 'P0002';
+  end if;
+  if is_blocked(me, target) then
+    raise exception 'You can''t follow them.' using errcode = '42501';
+  end if;
+  if exists (select 1 from follows where follower_id = me and followee_id = target) then
+    return 'following';
+  end if;
+  if not is_private_account(target) then
+    insert into follows (follower_id, followee_id) values (me, target) on conflict do nothing;
+    return 'following';
+  end if;
+  perform enforce_rate_limit((select count(*)::int from follow_requests
+    where requester_id = me and created_at > now() - interval '1 hour'), 50, 'follow requests');
+  insert into follow_requests (requester_id, target_id) values (me, target) on conflict do nothing;
+  return 'requested';
+end $$;
+revoke all on function public.request_follow(uuid) from public, anon;
+grant execute on function public.request_follow(uuid) to authenticated;
+
+-- Approve or decline someone who asked to follow you.
+create or replace function public.answer_follow_request(requester uuid, accept boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+begin
+  if not exists (select 1 from follow_requests where requester_id = requester and target_id = me) then
+    raise exception 'That request is gone.' using errcode = 'P0002';
+  end if;
+  delete from follow_requests where requester_id = requester and target_id = me;
+  if accept and not is_blocked(me, requester) then
+    insert into follows (follower_id, followee_id) values (requester, me) on conflict do nothing;
+  end if;
+end $$;
+revoke all on function public.answer_follow_request(uuid, boolean) from public, anon;
+grant execute on function public.answer_follow_request(uuid, boolean) to authenticated;
+
+-- Switching back to public lets everyone who asked follow you.
+create or replace function public.profiles_privacy_changed() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.is_private and not new.is_private then
+    insert into follows (follower_id, followee_id)
+    select requester_id, target_id from follow_requests where target_id = new.id
+    on conflict do nothing;
+    delete from follow_requests where target_id = new.id;
+  end if;
+  return null;
+end $$;
+revoke all on function public.profiles_privacy_changed() from public, anon, authenticated;
+create or replace trigger profiles_privacy after update of is_private on public.profiles
+  for each row execute function public.profiles_privacy_changed();
+
+-- ---------------------------------------------------------------- direct messages
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  recipient_id uuid not null references public.profiles (id) on delete cascade,
+  body text not null check (char_length(btrim(body)) between 1 and 2000),
+  created_at timestamptz not null default now(),
+  read_at timestamptz,
+  constraint messages_not_self check (sender_id <> recipient_id)
+);
+create index if not exists messages_pair_idx on public.messages (sender_id, recipient_id, created_at desc);
+create index if not exists messages_recipient_idx on public.messages (recipient_id, created_at desc);
+
+-- One row per person per conversation: their own inbox. state: open, request (from someone new), archived,
+-- hidden (deleted on their side; it comes back if a new message arrives).
+create table if not exists public.dm_threads (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  other_id uuid not null references public.profiles (id) on delete cascade,
+  state text not null default 'open' check (state in ('open', 'request', 'archived', 'hidden')),
+  last_message_at timestamptz not null default now(),
+  last_body text not null default '',
+  last_from_me boolean not null default false,
+  unread int not null default 0,
+  cleared_at timestamptz,
+  primary key (user_id, other_id)
+);
+create index if not exists dm_threads_user_idx on public.dm_threads (user_id, last_message_at desc);
+
+revoke all on public.messages, public.dm_threads from anon, authenticated;
+grant select on public.messages, public.dm_threads to authenticated;
+alter table public.messages enable row level security;
+alter table public.dm_threads enable row level security;
+drop policy if exists messages_read on public.messages;
+create policy messages_read on public.messages for select to authenticated
+  using (sender_id = auth.uid() or recipient_id = auth.uid());
+drop policy if exists dm_threads_read on public.dm_threads;
+create policy dm_threads_read on public.dm_threads for select to authenticated using (user_id = auth.uid());
+
+-- Sends a message. Checks blocks, bans and limits, and the other person's "who can message me" setting.
+-- Someone new lands in their Requests until they reply or accept.
+create or replace function public.send_dm(target uuid, body text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  msg text := btrim(coalesce(body, ''));
+  their profiles;
+  r restrictions;
+  existing dm_threads;
+  new_state text;
+  new_id uuid;
+begin
+  if me is null then
+    raise exception 'Not logged in.' using errcode = '42501';
+  end if;
+  select * into their from profiles where id = target;
+  if not found or target = me then
+    raise exception 'That account doesn''t exist.' using errcode = 'P0002';
+  end if;
+  if char_length(msg) < 1 or char_length(msg) > 2000 then
+    raise exception 'Messages are 1-2000 characters.' using errcode = '22023';
+  end if;
+  if is_blocked(me, target) then
+    raise exception 'You can''t message them.' using errcode = '42501';
+  end if;
+  select * into r from restrictions where user_id = me and (until is null or until > now());
+  if found and (r.banned or r.no_comments) then
+    raise exception 'A moderator turned off messaging for your account.' using errcode = 'P0403';
+  end if;
+  perform enforce_rate_limit((select count(*)::int from messages
+    where sender_id = me and created_at > now() - interval '10 minutes'), 60, 'messages');
+  select * into existing from dm_threads where user_id = target and other_id = me;
+  if found and existing.state in ('open', 'archived') then
+    new_state := existing.state;
+  elsif exists (select 1 from follows where follower_id = target and followee_id = me)
+        or exists (select 1 from messages where sender_id = target and recipient_id = me)
+        or staff_rank(me) >= 1 then
+    new_state := 'open';
+  else
+    if their.dm_policy = 'nobody' or (their.dm_policy = 'following' and staff_rank(me) < 1) then
+      raise exception '@% isn''t taking messages from people they don''t follow.', their.username using errcode = '42501';
+    end if;
+    perform enforce_rate_limit((select count(*)::int from dm_threads t
+      where t.other_id = me and t.state = 'request' and t.last_message_at > now() - interval '1 day'
+        and not exists (select 1 from messages m where m.sender_id = t.user_id and m.recipient_id = me)), 15, 'new conversations');
+    new_state := 'request';
+  end if;
+  if their.dm_policy = 'nobody' and new_state = 'request' then
+    raise exception '@% isn''t taking messages.', their.username using errcode = '42501';
+  end if;
+  insert into messages (sender_id, recipient_id, body) values (me, target, msg) returning id into new_id;
+  insert into dm_threads (user_id, other_id, state, last_message_at, last_body, last_from_me, unread)
+  values (me, target, 'open', now(), left(msg, 140), true, 0)
+  on conflict (user_id, other_id) do update set state = 'open', last_message_at = now(),
+    last_body = excluded.last_body, last_from_me = true, unread = 0;
+  insert into dm_threads (user_id, other_id, state, last_message_at, last_body, last_from_me, unread)
+  values (target, me, new_state, now(), left(msg, 140), false, 1)
+  on conflict (user_id, other_id) do update set
+    state = case when dm_threads.state = 'hidden' then new_state else dm_threads.state end,
+    last_message_at = now(), last_body = excluded.last_body, last_from_me = false, unread = dm_threads.unread + 1;
+  return new_id;
+end $$;
+
+-- The messages in one conversation (newest first), after anything you cleared.
+create or replace function public.dm_messages(other uuid, p_before timestamptz default null, p_limit int default 50)
+returns table (id uuid, sender_id uuid, body text, created_at timestamptz, read_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select m.id, m.sender_id, m.body, m.created_at, m.read_at
+    from messages m
+   where ((m.sender_id = auth.uid() and m.recipient_id = other) or (m.sender_id = other and m.recipient_id = auth.uid()))
+     and m.created_at > coalesce((select t.cleared_at from dm_threads t where t.user_id = auth.uid() and t.other_id = other), '-infinity')
+     and (p_before is null or m.created_at < p_before)
+   order by m.created_at desc
+   limit least(greatest(p_limit, 1), 100)
+$$;
+
+create or replace function public.dm_mark_read(other uuid) returns void
+language sql security definer set search_path = public as $$
+  update messages set read_at = now() where sender_id = other and recipient_id = auth.uid() and read_at is null;
+  update dm_threads set unread = 0 where user_id = auth.uid() and other_id = other;
+$$;
+
+-- Accept a request (open), archive, un-archive, or delete the conversation on your side (hidden).
+create or replace function public.dm_set_state(other uuid, new_state text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if new_state not in ('open', 'archived', 'hidden') then
+    raise exception 'Pick open, archived or hidden.' using errcode = '22023';
+  end if;
+  update dm_threads set state = new_state,
+         cleared_at = case when new_state = 'hidden' then now() else cleared_at end,
+         unread = case when new_state = 'hidden' then 0 else unread end
+   where user_id = auth.uid() and other_id = other;
+  if not found then
+    raise exception 'That conversation is gone.' using errcode = 'P0002';
+  end if;
+end $$;
+
+-- Unread counts for the badges.
+create or replace function public.dm_counts() returns table (unread bigint, requests bigint)
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(unread) filter (where state in ('open', 'archived')), 0),
+         count(*) filter (where state = 'request')
+    from dm_threads where user_id = auth.uid()
+$$;
+
+do $$
+declare
+  f text;
+begin
+  foreach f in array array['send_dm(uuid, text)', 'dm_messages(uuid, timestamptz, int)', 'dm_mark_read(uuid)',
+                           'dm_set_state(uuid, text)', 'dm_counts()'] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------- reporting people, and public labels
+
+create table if not exists public.user_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  target_id uuid not null references public.profiles (id) on delete cascade,
+  reason text not null check (reason in ('spam', 'scam', 'nuisance', 'bad')),
+  details text not null default '' check (char_length(details) <= 300),
+  created_at timestamptz not null default now(),
+  unique (reporter_id, target_id),
+  constraint user_reports_not_self check (reporter_id <> target_id)
+);
+create index if not exists user_reports_target_idx on public.user_reports (target_id);
+
+-- When staff decide a label is unfair, reports from before that moment stop counting.
+create table if not exists public.flag_clears (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  cleared_at timestamptz not null default now(),
+  cleared_by uuid references public.profiles (id) on delete set null
+);
+
+revoke all on public.user_reports, public.flag_clears from anon, authenticated;
+grant insert (target_id, reason, details) on public.user_reports to authenticated;
+alter table public.user_reports enable row level security;
+alter table public.flag_clears enable row level security;
+drop policy if exists user_reports_insert_own on public.user_reports;
+create policy user_reports_insert_own on public.user_reports for insert to authenticated
+  with check (reporter_id = auth.uid());
+
+-- Labels for people reported by 3 or more different people in the last 90 days (reports on their posts count
+-- too). The label is the most common reason. Who reported them is never shown. Staff are never labelled.
+create or replace function public.user_flags(ids uuid[]) returns table (user_id uuid, label text, reporters bigint)
+language sql stable security definer set search_path = public as $$
+  with raw as (
+    select ur.target_id as uid, ur.reporter_id, ur.reason, ur.created_at
+      from user_reports ur where ur.target_id = any(ids)
+    union all
+    select p.user_id, rp.reporter_id,
+           case when rp.reason ilike '%spam%' or rp.reason ilike '%scam%' then 'spam'
+                when rp.reason ilike '%harass%' or rp.reason ilike '%hate%' then 'bad'
+                else 'nuisance' end,
+           rp.created_at
+      from reports rp join posts p on p.id = rp.post_id where p.user_id = any(ids)
+  ), live as (
+    select raw.* from raw left join flag_clears fc on fc.user_id = raw.uid
+     where raw.created_at > greatest(coalesce(fc.cleared_at, '-infinity'), now() - interval '90 days')
+       and staff_rank(raw.uid) = 0
+  )
+  select l.uid,
+         (select l2.reason from live l2 where l2.uid = l.uid group by l2.reason
+           order by count(distinct l2.reporter_id) desc,
+                    array_position(array['scam', 'bad', 'spam', 'nuisance'], l2.reason) limit 1),
+         count(distinct l.reporter_id)
+    from live l group by l.uid having count(distinct l.reporter_id) >= 3
+$$;
+revoke all on function public.user_flags(uuid[]) from public, anon;
+grant execute on function public.user_flags(uuid[]) to authenticated;
+
+-- ---------------------------------------------------------------- the Lounge (chat, shared with Discord)
+
+create table if not exists public.chat_messages (
+  id bigint generated always as identity primary key,
+  user_id uuid default auth.uid() references public.profiles (id) on delete cascade,
+  source text not null default 'furzone' check (source in ('furzone', 'discord')),
+  body text not null check (char_length(btrim(body)) between 1 and 1000),
+  discord_id text unique,
+  discord_author text check (discord_author is null or char_length(discord_author) <= 100),
+  discord_avatar text check (discord_avatar is null or (discord_avatar ~ '^https://cdn\.discordapp\.com/' and char_length(discord_avatar) <= 300)),
+  created_at timestamptz not null default now(),
+  constraint chat_messages_author check ((source = 'furzone') = (user_id is not null))
+);
+create index if not exists chat_messages_created_idx on public.chat_messages (created_at desc);
+
+-- The bridge's bookmark in the Discord channel (only the server function touches it).
+create table if not exists private.lounge_state (
+  id int primary key default 1 check (id = 1),
+  last_discord_id text,
+  last_sync_at timestamptz not null default '-infinity'
+);
+
+revoke all on public.chat_messages from anon, authenticated;
+grant select, delete on public.chat_messages to authenticated;
+grant insert (body) on public.chat_messages to authenticated;
+alter table public.chat_messages enable row level security;
+alter table private.lounge_state enable row level security;
+drop policy if exists chat_read on public.chat_messages;
+create policy chat_read on public.chat_messages for select to authenticated
+  using (user_id is null or user_id = auth.uid() or public.staff_rank(auth.uid()) >= 1
+         or (not public.is_blocked(auth.uid(), user_id) and not public.is_banned(user_id)));
+drop policy if exists chat_insert_own on public.chat_messages;
+create policy chat_insert_own on public.chat_messages for insert to authenticated
+  with check (user_id = auth.uid() and source = 'furzone');
+drop policy if exists chat_delete on public.chat_messages;
+create policy chat_delete on public.chat_messages for delete to authenticated
+  using (user_id = auth.uid() or public.staff_rank(auth.uid()) >= 2);
+
+-- Server function only: may it fetch from Discord now? (at most every few seconds, for everyone together)
+create or replace function public.lounge_claim_sync(min_gap_ms int) returns table (ok boolean, last_discord_id text)
+language plpgsql security definer set search_path = public, private as $$
+begin
+  insert into private.lounge_state (id) values (1) on conflict do nothing;
+  return query
+    update private.lounge_state s set last_sync_at = now()
+     where s.id = 1 and s.last_sync_at < now() - make_interval(secs => min_gap_ms / 1000.0)
+    returning true, s.last_discord_id;
+end $$;
+
+-- Server function only: adds messages read from Discord and moves the bookmark.
+create or replace function public.lounge_ingest(p_rows jsonb, p_last_id text) returns int
+language plpgsql security definer set search_path = public, private as $$
+declare
+  added int;
+begin
+  insert into chat_messages (user_id, source, body, discord_id, discord_author, discord_avatar, created_at)
+  select null, 'discord', left(btrim(x ->> 'body'), 1000), x ->> 'discord_id', left(x ->> 'author', 100),
+         nullif(x ->> 'avatar', ''), coalesce((x ->> 'created_at')::timestamptz, now())
+    from jsonb_array_elements(coalesce(p_rows, '[]')) x
+   where char_length(btrim(coalesce(x ->> 'body', ''))) > 0
+  on conflict (discord_id) do nothing;
+  get diagnostics added = row_count;
+  if p_last_id is not null then
+    update private.lounge_state set last_discord_id = p_last_id where id = 1;
+  end if;
+  return added;
+end $$;
+
+-- Server function only: remembers which Discord message a FurZone message became.
+create or replace function public.lounge_mark_relayed(p_id bigint, p_discord_id text) returns void
+language sql security definer set search_path = public as $$
+  update chat_messages set discord_id = p_discord_id where id = p_id and source = 'furzone' and discord_id is null
+$$;
+
+-- ---------------------------------------------------------------- announcements (VRChat updates and FurZone news)
+
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  source text not null check (source in ('vrchat', 'furzone')),
+  external_id text unique,
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  body text not null default '' check (char_length(body) <= 4000),
+  url text check (url is null or (url ~ '^https://' and char_length(url) <= 500)),
+  published_at timestamptz not null default now(),
+  created_by uuid references public.profiles (id) on delete set null
+);
+create index if not exists announcements_published_idx on public.announcements (published_at desc);
+
+create table if not exists private.news_state (
+  id int primary key default 1 check (id = 1),
+  last_fetch_at timestamptz not null default '-infinity'
+);
+
+revoke all on public.announcements from anon, authenticated;
+grant select on public.announcements to authenticated;
+alter table public.announcements enable row level security;
+alter table private.news_state enable row level security;
+drop policy if exists announcements_read on public.announcements;
+create policy announcements_read on public.announcements for select to authenticated using (true);
+
+-- Admins and the owner post FurZone news.
+create or replace function public.post_announcement(p_title text, p_body text, p_url text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  new_id uuid;
+begin
+  perform staff_require(3);
+  insert into announcements (source, title, body, url, created_by)
+  values ('furzone', btrim(p_title), btrim(coalesce(p_body, '')), nullif(btrim(coalesce(p_url, '')), ''), auth.uid())
+  returning id into new_id;
+  perform staff_note('announce', null, null, jsonb_build_object('title', left(p_title, 200)));
+  return new_id;
+end $$;
+revoke all on function public.post_announcement(text, text, text) from public, anon;
+grant execute on function public.post_announcement(text, text, text) to authenticated;
+
+-- Server function only: time to check VRChat's news again? (at most every 30 minutes)
+create or replace function public.news_claim_fetch() returns boolean
+language plpgsql security definer set search_path = public, private as $$
+begin
+  insert into private.news_state (id) values (1) on conflict do nothing;
+  update private.news_state set last_fetch_at = now() where id = 1 and last_fetch_at < now() - interval '30 minutes';
+  return found;
+end $$;
+
+-- Server function only: stores VRChat news; returns the ones that are new (so they can go to Discord too).
+create or replace function public.news_ingest(p_items jsonb)
+returns table (id uuid, title text, body text, url text, published_at timestamptz)
+language sql security definer set search_path = public as $$
+  insert into announcements (source, external_id, title, body, url, published_at)
+  select 'vrchat', x ->> 'external_id', left(btrim(x ->> 'title'), 200), left(coalesce(x ->> 'body', ''), 4000),
+         case when x ->> 'url' ~ '^https://' then left(x ->> 'url', 500) end,
+         coalesce((x ->> 'published_at')::timestamptz, now())
+    from jsonb_array_elements(coalesce(p_items, '[]')) x
+   where char_length(btrim(coalesce(x ->> 'title', ''))) > 0 and coalesce(x ->> 'external_id', '') <> ''
+  on conflict (external_id) do nothing
+  returning id, title, body, url, published_at
+$$;
+
+do $$
+declare
+  f text;
+begin
+  foreach f in array array['lounge_claim_sync(int)', 'lounge_ingest(jsonb, text)', 'lounge_mark_relayed(bigint, text)',
+                           'news_claim_fetch()', 'news_ingest(jsonb)'] loop
+    execute format('revoke all on function public.%s from public, anon, authenticated', f);
+    execute format('grant execute on function public.%s to service_role', f);
+  end loop;
+end $$;
+
+-- Live updates for the Lounge and messages (Supabase Realtime still applies the read rules above).
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'chat_messages') then
+      alter publication supabase_realtime add table public.chat_messages;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'messages') then
+      alter publication supabase_realtime add table public.messages;
+    end if;
+  end if;
+end $$;
+
+
 -- ---------------------------------------------------------------- comment likes, views and explore
 
 alter table public.comments add column if not exists boops_count int not null default 0;
@@ -875,6 +1377,27 @@ $$;
 revoke all on function public.explore(text, text, text, int, int) from public, anon;
 grant execute on function public.explore(text, text, text, int, int) to authenticated;
 
+-- Search posts by words in the caption or a #tag.
+create or replace function public.search_posts(p_query text, p_limit int default 30)
+returns table (
+  id uuid, user_id uuid, username text, display_name text, avatar_path text, caption text, tags text[],
+  media_path text, media_type text, boops_count int, comments_count int, views_count int, created_at timestamptz
+)
+language sql stable security invoker set search_path = public as $$
+  with q as (select btrim(coalesce(p_query, '')) as raw)
+  select p.id, p.user_id, pr.username, pr.display_name, pr.avatar_path, p.caption, p.tags, p.media_path, p.media_type,
+         p.boops_count, p.comments_count, p.views_count, p.created_at
+    from posts p join profiles pr on pr.id = p.user_id, q
+   where char_length(q.raw) between 2 and 60
+     and not p.hidden and not public.is_banned(p.user_id)
+     and (p.tags @> array[lower(ltrim(q.raw, '#'))]
+          or p.caption ilike '%' || replace(replace(replace(q.raw, '\', '\\'), '%', '\%'), '_', '\_') || '%')
+   order by p.boops_count desc, p.created_at desc
+   limit least(greatest(p_limit, 1), 60)
+$$;
+revoke all on function public.search_posts(text, int) from public, anon;
+grant execute on function public.search_posts(text, int) to authenticated;
+
 -- ---------------------------------------------------------------- staff and moderation
 --
 -- Who can do what (you can only ever act on people ranked BELOW you, never on yourself):
@@ -923,6 +1446,8 @@ begin
     if tg_op = 'INSERT' and r.no_uploads and (to_jsonb(new) ->> 'media_path') is not null then
       raise exception 'A moderator turned off picture and video uploads for your account%.', ending using errcode = 'P0403';
     end if;
+  elsif tg_table_name = 'chat_messages' and r.no_comments then
+    raise exception 'A moderator turned off chat for your account%.', ending using errcode = 'P0403';
   elsif tg_table_name = 'comments' and r.no_comments then
     raise exception 'A moderator turned off commenting for your account%.', ending using errcode = 'P0403';
   elsif tg_table_name = 'profiles' and r.no_profile_edits then
@@ -939,6 +1464,24 @@ create or replace trigger restrictions before insert on public.boops for each ro
 create or replace trigger restrictions before insert on public.follows for each row execute function public.enforce_restrictions();
 create or replace trigger restrictions before insert on public.reports for each row execute function public.enforce_restrictions();
 create or replace trigger restrictions before insert on public.comment_boops for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.chat_messages for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.user_reports for each row execute function public.enforce_restrictions();
+create or replace trigger rate_limit before insert on public.chat_messages for each row execute function public.rate_limit();
+create or replace trigger rate_limit before insert on public.user_reports for each row execute function public.rate_limit();
+
+-- Staff can clear a public label they think is unfair.
+create or replace function public.staff_clear_flag(target uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  mine int := staff_require(2);
+begin
+  perform staff_check_target(mine, target);
+  insert into flag_clears (user_id, cleared_at, cleared_by) values (target, now(), auth.uid())
+  on conflict (user_id) do update set cleared_at = now(), cleared_by = auth.uid();
+  perform staff_note('clear_flag', target, null, null);
+end $$;
+revoke all on function public.staff_clear_flag(uuid) from public, anon;
+grant execute on function public.staff_clear_flag(uuid) to authenticated;
 
 -- The caller's rank, or an error if it's below what the action needs.
 create or replace function public.staff_require(min_rank int) returns int

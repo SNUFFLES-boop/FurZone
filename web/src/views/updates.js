@@ -1,6 +1,6 @@
 // App updates for the Android and Windows apps: checks GitHub releases, downloads in the app (the native
 // side verifies the SHA-256 before installing).
-import { h, icon, toast, errorText, withBusy } from '../ui.js';
+import { h, icon, toast, errorText, withBusy, fill } from '../ui.js';
 import { platform, checkForUpdate, installUpdate, onUpdateProgress } from '../platform.js';
 import { VERSION } from '../config.js';
 
@@ -85,7 +85,8 @@ export function updateSection() {
                         'Update now'
                     )
                   : h('button', { class: 'btn ghost', disabled: busy, onclick: () => check(true) }, icon('refresh'), 'Check for updates');
-        box.replaceChildren(
+        fill(
+            box,
             h('p', { class: 'update-status', text: status }),
             s.phase === 'downloading' ? h('div', { class: 'upload-progress' }, h('span', { style: { transform: `scaleX(${s.percent / 100})` } })) : null,
             s.info && s.info.available && s.info.notes ? h('p', { class: 'muted small', text: s.info.notes }) : null,

@@ -1,4 +1,4 @@
-import { h, icon, avatar, emptyState, toast, errorText, withBusy, field, sheet, spinner, confirmDialog } from '../ui.js';
+import { h, icon, avatar, emptyState, toast, errorText, withBusy, field, sheet, spinner, confirmDialog, flagPill, fill } from '../ui.js';
 import { app, refreshMe } from '../state.js';
 import { compactCount, hueOf, validUsername, prepareImage, mediaKind } from '../format.js';
 import { captionNode, badges } from './postcard.js';
@@ -27,6 +27,7 @@ export function renderProfile(view, ctx, username) {
 
     function draw(p) {
         const isMe = p.id === app.me.id;
+        let followState = isMe ? 'following' : null;
         const hue = hueOf(p.username);
         const banner = h('div', { class: 'banner', style: { '--h': String(hue) } }, p.banner_url && h('img', { src: p.banner_url, alt: '' }));
         const actions = h('div', { class: 'profile-actions' });
@@ -36,25 +37,46 @@ export function renderProfile(view, ctx, username) {
                 h('a', { class: 'icon-btn ghost-btn', href: '#/settings', 'aria-label': 'Settings' }, icon('settings'))
             );
         } else {
-            const follow = h('button', { class: 'btn primary', text: 'Follow' });
+            const follow = h('button', { class: 'btn primary', text: p.is_private ? 'Request' : 'Follow' });
+            const label = { following: ['Following', 'btn ghost'], requested: ['Requested', 'btn ghost'], none: [p.is_private ? 'Request' : 'Follow', 'btn primary'] };
+            const setState = (st) => {
+                followState = st;
+                follow.textContent = label[st][0];
+                follow.className = label[st][1];
+            };
             app.backend
-                .isFollowing(p.id)
-                .then((on) => on && (follow.textContent = 'Following', follow.className = 'btn ghost'))
-                .catch(() => {});
+                .followState(p.id)
+                .then((st) => {
+                    setState(st);
+                    showPosts();
+                })
+                .catch(() => showPosts());
             follow.onclick = () =>
                 withBusy(follow, async () => {
-                    const on = follow.textContent === 'Following';
                     try {
-                        await (on ? app.backend.unfollow(p.id) : app.backend.follow(p.id));
-                        follow.textContent = on ? 'Follow' : 'Following';
-                        follow.className = on ? 'btn primary' : 'btn ghost';
-                        followers.textContent = compactCount((p.followers_count += on ? -1 : 1));
+                        if (followState === 'following') {
+                            if (p.is_private && !(await confirmDialog(`Unfollow @${p.username}?`, "Their account is private, so you'd have to ask again to see their posts.", { ok: 'Unfollow' }))) return;
+                            await app.backend.unfollow(p.id);
+                            setState('none');
+                            followers.textContent = compactCount((p.followers_count = Math.max(0, p.followers_count - 1)));
+                        } else if (followState === 'requested') {
+                            await app.backend.cancelFollowRequest(p.id);
+                            setState('none');
+                            toast('Request cancelled', 'info');
+                        } else {
+                            const result = await app.backend.requestFollow(p.id);
+                            setState(result === 'requested' ? 'requested' : 'following');
+                            if (result === 'requested') toast(`Asked @${p.username} if you can follow them`, 'success');
+                            else followers.textContent = compactCount((p.followers_count += 1));
+                        }
+                        showPosts();
                     } catch (e) {
                         toast(errorText(e), 'error');
                     }
                 });
             actions.append(
                 follow,
+                h('a', { class: 'icon-btn ghost-btn', href: `#/dm/${p.username}`, 'aria-label': 'Message' }, icon('mail')),
                 h('button', { class: 'icon-btn ghost-btn', 'aria-label': 'More', onclick: () => profileMenu(p, ctx, load) }, icon('more'))
             );
         }
@@ -74,8 +96,16 @@ export function renderProfile(view, ctx, username) {
             h(
                 'div',
                 { class: 'profile-id' },
-                h('h1', null, h('span', { text: p.display_name || p.username }), badges(p.connections, 'md'), roleBadge(p.role, 'md')),
+                h(
+                    'h1',
+                    null,
+                    h('span', { text: p.display_name || p.username }),
+                    p.is_private && h('span', { class: 'lock', title: 'Private account', 'aria-label': 'Private account' }, icon('lock')),
+                    badges(p.connections, 'md'),
+                    roleBadge(p.role, 'md')
+                ),
                 h('p', { class: 'handle', text: '@' + p.username }),
+                p.flag && h('div', { class: 'profile-flag' }, flagPill(p.flag, 'md'), h('span', { class: 'muted', text: 'Several people reported this account. Be careful.' })),
                 chips.length ? h('div', { class: 'pills' }, chips) : null,
                 p.bio && captionNode(p.bio, 'bio'),
                 conns
@@ -116,31 +146,76 @@ export function renderProfile(view, ctx, username) {
             })
             .catch(() => {});
 
-        app.backend
-            .userPosts(p.id)
-            .then((posts) => {
-                grid.replaceChildren(
-                    ...(posts.length
-                        ? posts.map((post) =>
-                              h(
-                                  'a',
-                                  { class: 'tile', href: `#/p/${post.id}`, 'aria-label': post.caption.slice(0, 80) || 'Post' },
-                                  post.media_type === 'image'
-                                      ? h('img', { src: post.media_url, alt: '', loading: 'lazy' })
-                                      : post.media_type === 'video'
-                                        ? [h('video', { src: post.media_url + '#t=0.1', muted: true, preload: 'metadata', playsinline: true }), h('span', { class: 'tile-badge' }, icon('video'))]
-                                        : h('span', { class: 'tile-text', style: { '--h': String(hueOf(post.user.username + post.id)) }, text: post.caption.slice(0, 90) }),
-                                  h('span', { class: 'tile-boops' }, icon('heart'), compactCount(post.boops))
+        let shown = false;
+        function showPosts() {
+            if (!isMe && p.is_private && followState !== 'following' && myRank() < 1) {
+                fill(grid, emptyState('lock', 'This account is private', `Follow @${p.username} to see their posts.`));
+                return;
+            }
+            if (shown) return;
+            shown = true;
+            app.backend
+                .userPosts(p.id)
+                .then((posts) => {
+                    grid.replaceChildren(
+                        ...(posts.length
+                            ? posts.map((post) =>
+                                  h(
+                                      'a',
+                                      { class: 'tile', href: `#/p/${post.id}`, 'aria-label': post.caption.slice(0, 80) || 'Post' },
+                                      post.media_type === 'image'
+                                          ? h('img', { src: post.media_url, alt: '', loading: 'lazy' })
+                                          : post.media_type === 'video'
+                                            ? [h('video', { src: post.media_url + '#t=0.1', muted: true, preload: 'metadata', playsinline: true }), h('span', { class: 'tile-badge' }, icon('video'))]
+                                            : h('span', { class: 'tile-text', style: { '--h': String(hueOf(post.user.username + post.id)) }, text: post.caption.slice(0, 90) }),
+                                      h('span', { class: 'tile-boops' }, icon('heart'), compactCount(post.boops))
+                                  )
                               )
-                          )
-                        : [emptyState('image', isMe ? 'Your first post goes here' : 'No posts yet', '', isMe && h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))])
-                );
-            })
-            .catch((e) => grid.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+                            : [emptyState('image', isMe ? 'Your first post goes here' : 'No posts yet', '', isMe && h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))])
+                    );
+                })
+                .catch((e) => grid.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
+        }
+        if (isMe) showPosts();
     }
 
     load();
     return () => (alive = false);
+}
+
+const USER_REPORT_REASONS = [
+    ['spam', 'Spam', 'Floods posts, comments or messages'],
+    ['scam', 'Scam', 'Fake giveaways, phishing links, asking for money or logins'],
+    ['nuisance', 'Nuisance', 'Keeps bothering people, trolling, stolen art'],
+    ['bad', 'Bad user', 'Hate, threats, harassment']
+];
+
+/** Report a person. Three or more reports from different people show a label on their account. */
+export function reportUser(p) {
+    sheet(`Report @${p.username}`, (body, close) => {
+        body.append(h('p', { class: 'muted', text: 'Reports are private. When several people report the same account, a warning label shows on it so others can be careful.' }));
+        for (const [reason, label, hint] of USER_REPORT_REASONS) {
+            body.append(
+                h(
+                    'button',
+                    {
+                        class: 'menu-item report-reason',
+                        onclick: async () => {
+                            close();
+                            try {
+                                await app.backend.reportUser(p.id, reason);
+                                toast("Thanks — we've got it from here.", 'success');
+                            } catch (e) {
+                                toast(errorText(e), 'error');
+                            }
+                        }
+                    },
+                    icon('flag'),
+                    h('span', { class: 'grow' }, h('strong', { text: label }), h('small', { class: 'muted', text: hint }))
+                )
+            );
+        }
+    });
 }
 
 function viewImage(url, label) {
@@ -153,7 +228,30 @@ function profileMenu(p, ctx, reload) {
             body.append(
                 h('button', { class: 'menu-item', onclick: () => (close(), staffTools(p, reload)) }, icon('shieldCheck'), h('span', { text: 'Staff tools' }))
             );
+            if (p.flag && myRank() >= 2) {
+                body.append(
+                    h(
+                        'button',
+                        {
+                            class: 'menu-item',
+                            onclick: async () => {
+                                close();
+                                try {
+                                    await app.backend.staffClearFlag(p.id);
+                                    toast('Label cleared. Older reports no longer count.', 'success');
+                                    reload && reload();
+                                } catch (e) {
+                                    toast(errorText(e), 'error');
+                                }
+                            }
+                        },
+                        icon('check'),
+                        h('span', { text: 'Clear the report label (staff)' })
+                    )
+                );
+            }
         }
+        body.append(h('button', { class: 'menu-item danger', onclick: () => (close(), reportUser(p)) }, icon('flag'), h('span', { text: `Report @${p.username}` })));
         body.append(
             h(
                 'button',

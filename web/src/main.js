@@ -14,6 +14,9 @@ import { renderFeed } from './views/feed.js';
 import { renderExplore } from './views/explore.js';
 import { renderCreate } from './views/create.js';
 import { renderInbox } from './views/inbox.js';
+import { renderDm } from './views/dm.js';
+import { startParticles, particlesForPage } from './particles.js';
+import { applyLook } from './look.js';
 import { renderProfile } from './views/profile.js';
 import { renderPostPage } from './views/post.js';
 import { renderSettings } from './views/settings.js';
@@ -25,6 +28,7 @@ let shell = null;
 let cleanup = null;
 let unsubscribe = null;
 let pollTimer = 0;
+let stopDms = null;
 
 const TABS = [
     ['home', 'Home', 'home'],
@@ -35,6 +39,8 @@ const TABS = [
 ];
 
 async function boot() {
+    applyLook();
+    startParticles();
     let backend;
     if (SERVER_CONFIGURED) {
         const { createSupabaseBackend } = await import('./backend/supabase.js');
@@ -70,7 +76,10 @@ function showLogin() {
     stopView();
     shell = null;
     clearInterval(pollTimer);
+    if (stopDms) stopDms();
+    stopDms = null;
     clear(root);
+    particlesForPage('login');
     renderLogin(root, { useBackend, createDemoBackend });
 }
 
@@ -97,6 +106,13 @@ async function enter() {
     clearInterval(pollTimer);
     // A light check for new notifications while the app is open and visible.
     pollTimer = setInterval(() => document.visibilityState === 'visible' && pollUnread(), 45000);
+    // New direct messages arrive live: update the badge and tell an open conversation.
+    if (stopDms) stopDms();
+    stopDms = app.backend.subscribeDms((msg) => {
+        window.dispatchEvent(new CustomEvent('furzone:dm', { detail: msg }));
+        pollUnread();
+        if (!location.hash.startsWith('#/dm/')) toast('New message 💬', 'info');
+    });
 }
 
 function buildShell() {
@@ -137,9 +153,17 @@ function stopView() {
     cleanup = null;
 }
 
+/** The Inbox badge: unread activity + follow requests + unread messages + message requests. */
 async function pollUnread() {
     try {
-        setUnread(await app.backend.unreadCount());
+        const [notes, requests, dm] = await Promise.all([
+            app.backend.unreadCount(),
+            app.backend.followRequestCount().catch(() => 0),
+            app.backend.dmCounts().catch(() => ({ unread: 0, requests: 0 }))
+        ]);
+        app.unreadActivity = notes + requests;
+        app.unreadMessages = dm.unread + dm.requests;
+        setUnread(app.unreadActivity + app.unreadMessages);
     } catch {
         // offline: try again next time
     }
@@ -165,21 +189,23 @@ function route() {
         page = 'u';
         arg = app.me.username;
     }
-    const tab = page === 'u' && arg === app.me.username ? 'me' : page;
+    const tab = page === 'u' && arg === app.me.username ? 'me' : page === 'dm' ? 'inbox' : page;
     for (const a of root.querySelectorAll('.nav-item')) {
         a.classList.toggle('on', a.dataset.tab === tab);
         if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     }
     shell.root.dataset.page = page || 'home';
+    particlesForPage(page || 'home');
     const view = clear(shell.main);
     view.scrollTop = 0;
-    const ctx = { go: (hash) => (location.hash = hash), setUnread };
+    const ctx = { go: (hash) => (location.hash = hash), setUnread: () => pollUnread() };
     try {
         if (page === 'home' || !page) cleanup = renderFeed(view, ctx);
         else if (page === 'explore') cleanup = renderExplore(view, ctx, arg === 'tag' ? arg2 : null);
         else if (page === 'new') cleanup = renderCreate(view, ctx);
-        else if (page === 'inbox') cleanup = renderInbox(view, ctx);
+        else if (page === 'inbox') cleanup = renderInbox(view, ctx, arg);
+        else if (page === 'dm') cleanup = renderDm(view, ctx, arg);
         else if (page === 'u') cleanup = renderProfile(view, ctx, arg);
         else if (page === 'p') cleanup = renderPostPage(view, ctx, arg);
         else if (page === 'settings') cleanup = renderSettings(view, ctx);

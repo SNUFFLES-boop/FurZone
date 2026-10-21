@@ -50,6 +50,41 @@ export function createSupabaseBackend(url, anonKey) {
         return new Map(rows.map((r) => [r.user_id, r.role]));
     }
 
+    /** Rank badges and public report labels for a list of people, as Maps by id. */
+    async function flagsOf(ids) {
+        if (!ids.length) return new Map();
+        const rows = await must(client.rpc('user_flags', { ids }));
+        return new Map(rows.map((r) => [r.user_id, r.label]));
+    }
+
+    async function decorate(people) {
+        const ids = [...new Set(people.filter(Boolean).map((p) => p.id))];
+        const [roles, flags] = await Promise.all([rolesOf(ids), flagsOf(ids)]);
+        for (const p of people) {
+            if (!p) continue;
+            p.role = roles.get(p.id) || null;
+            p.flag = flags.get(p.id) || null;
+        }
+        return people;
+    }
+
+    async function invoke(name, body) {
+        const { data, error } = await client.functions.invoke(name, { body });
+        if (error) {
+            let message = error.message;
+            try {
+                const b = await error.context.json();
+                message = b.error || message;
+            } catch {
+                // keep the generic message
+            }
+            const err = new Error(message);
+            err.status = error.context && error.context.status;
+            throw err;
+        }
+        return data;
+    }
+
     async function roleOf(id) {
         const row = await must(client.from('staff').select('role').eq('user_id', id).maybeSingle());
         return row ? row.role : null;
@@ -179,8 +214,8 @@ export function createSupabaseBackend(url, anonKey) {
         async profileByUsername(username) {
             const row = await must(client.from('profiles').select('*').eq('username', String(username).toLowerCase()).maybeSingle());
             if (!row) return null;
-            const [conns, role] = await Promise.all([connectionsOf([row.id]), roleOf(row.id)]);
-            return shapeProfile({ ...row, connections: conns.get(row.id) || [], role });
+            const [conns, role, flags] = await Promise.all([connectionsOf([row.id]), roleOf(row.id), flagsOf([row.id])]);
+            return shapeProfile({ ...row, connections: conns.get(row.id) || [], role, flag: flags.get(row.id) || null });
         },
         async connections(userIdArg) {
             return must(client.from('connections').select('provider, handle, external_id, verified_at').eq('user_id', userIdArg));
@@ -218,7 +253,7 @@ export function createSupabaseBackend(url, anonKey) {
                     .limit(20)
             );
             const conns = await connectionsOf(rows.map((r) => r.id));
-            return rows.map((r) => shapeProfile({ ...r, connections: conns.get(r.id) || [] }));
+            return decorate(rows.map((r) => shapeProfile({ ...r, connections: conns.get(r.id) || [] })));
         },
         async trendingTags() {
             return must(client.rpc('trending_tags', { p_limit: 12 }));
@@ -310,11 +345,12 @@ export function createSupabaseBackend(url, anonKey) {
             const me = await userId();
             const people = [...new Set(rows.map((r) => r.user_id))];
             const ids = rows.map((r) => r.id);
-            const [roles, liked, iFollow, followMe] = await Promise.all([
+            const [roles, liked, iFollow, followMe, flags] = await Promise.all([
                 rolesOf(people),
                 ids.length ? must(client.from('comment_boops').select('comment_id').eq('user_id', me).in('comment_id', ids)) : [],
                 people.length ? must(client.from('follows').select('followee_id').eq('follower_id', me).in('followee_id', people)) : [],
-                people.length ? must(client.from('follows').select('follower_id').eq('followee_id', me).in('follower_id', people)) : []
+                people.length ? must(client.from('follows').select('follower_id').eq('followee_id', me).in('follower_id', people)) : [],
+                flagsOf(people)
             ]);
             const likedSet = new Set(liked.map((r) => r.comment_id));
             const following = new Set(iFollow.map((r) => r.followee_id));
@@ -326,7 +362,7 @@ export function createSupabaseBackend(url, anonKey) {
                 likes: Number(r.boops_count) || 0,
                 liked: likedSet.has(r.id),
                 user: {
-                    ...shapeProfile({ ...r.profiles, role: roles.get(r.user_id) || null }),
+                    ...shapeProfile({ ...r.profiles, role: roles.get(r.user_id) || null, flag: flags.get(r.user_id) || null }),
                     you_follow: following.has(r.user_id),
                     follows_you: followers.has(r.user_id)
                 }
@@ -401,13 +437,15 @@ export function createSupabaseBackend(url, anonKey) {
                     .order('created_at', { ascending: false })
                     .limit(100)
             );
-            return rows.map((r) => ({
+            const actors = rows.map((r) => shapeProfile(r.actor));
+            await decorate(actors);
+            return rows.map((r, i) => ({
                 id: r.id,
                 kind: r.kind,
                 created_at: r.created_at,
                 read: !!r.read_at,
                 post_id: r.post_id,
-                actor: shapeProfile(r.actor),
+                actor: actors[i],
                 post: r.post ? { media_url: mediaUrl(r.post.media_path), media_type: r.post.media_type, caption: r.post.caption } : null
             }));
         },
@@ -515,6 +553,177 @@ export function createSupabaseBackend(url, anonKey) {
                     .limit(200)
             );
             return rows.map((r) => ({ ...r, actor: shapeProfile(r.actor), target: shapeProfile(r.target) }));
+        },
+
+        // ---- privacy ----
+        async updatePrivacy(patch) {
+            const id = await userId();
+            const allowed = {};
+            for (const k of ['is_private', 'dm_policy']) if (k in patch) allowed[k] = patch[k];
+            await must(client.from('profiles').update(allowed).eq('id', id));
+            return this.me();
+        },
+        /** 'following' | 'requested' | 'none' */
+        async followState(userIdArg) {
+            const me = await userId();
+            const [f, r] = await Promise.all([
+                client.from('follows').select('followee_id').eq('follower_id', me).eq('followee_id', userIdArg).maybeSingle(),
+                client.from('follow_requests').select('target_id').eq('requester_id', me).eq('target_id', userIdArg).maybeSingle()
+            ]);
+            return f.data ? 'following' : r.data ? 'requested' : 'none';
+        },
+        async requestFollow(userIdArg) {
+            return must(client.rpc('request_follow', { target: userIdArg }));
+        },
+        async cancelFollowRequest(userIdArg) {
+            const me = await userId();
+            await must(client.from('follow_requests').delete().eq('requester_id', me).eq('target_id', userIdArg));
+        },
+        async followRequests() {
+            const me = await userId();
+            const rows = await must(
+                client
+                    .from('follow_requests')
+                    .select(`created_at, requester:profiles!follow_requests_requester_id_fkey(${PROFILE_COLS})`)
+                    .eq('target_id', me)
+                    .order('created_at', { ascending: false })
+            );
+            const people = await decorate(rows.map((r) => shapeProfile(r.requester)));
+            return rows.map((r, i) => ({ created_at: r.created_at, user: people[i] }));
+        },
+        async followRequestCount() {
+            const me = await userId();
+            const { count, error } = await client.from('follow_requests').select('requester_id', { count: 'exact', head: true }).eq('target_id', me);
+            if (error) throw error;
+            return count || 0;
+        },
+        async answerFollowRequest(userIdArg, accept) {
+            await must(client.rpc('answer_follow_request', { requester: userIdArg, accept }));
+        },
+
+        // ---- direct messages ----
+        async threads(state = 'open') {
+            const me = await userId();
+            const rows = await must(
+                client
+                    .from('dm_threads')
+                    .select(`other_id, state, last_message_at, last_body, last_from_me, unread, other:profiles!dm_threads_other_id_fkey(${PROFILE_COLS})`)
+                    .eq('user_id', me)
+                    .eq('state', state)
+                    .order('last_message_at', { ascending: false })
+                    .limit(100)
+            );
+            const people = await decorate(rows.map((r) => shapeProfile(r.other)));
+            return rows.map((r, i) => ({ ...r, other: people[i] }));
+        },
+        async thread(otherId) {
+            const me = await userId();
+            return must(client.from('dm_threads').select('state, unread').eq('user_id', me).eq('other_id', otherId).maybeSingle());
+        },
+        async dmCounts() {
+            const [row] = await must(client.rpc('dm_counts'));
+            return { unread: Number(row && row.unread) || 0, requests: Number(row && row.requests) || 0 };
+        },
+        async dmMessages(otherId, before = null) {
+            return must(client.rpc('dm_messages', { other: otherId, p_before: before, p_limit: 50 }));
+        },
+        async sendDm(otherId, body) {
+            return must(client.rpc('send_dm', { target: otherId, body }));
+        },
+        async dmMarkRead(otherId) {
+            await must(client.rpc('dm_mark_read', { other: otherId }));
+        },
+        async dmSetState(otherId, state) {
+            await must(client.rpc('dm_set_state', { other: otherId, new_state: state }));
+        },
+        /** Calls back when a message arrives for you. Returns a function that stops listening. */
+        subscribeDms(onMessage) {
+            let channel = null;
+            userId()
+                .then((me) => {
+                    channel = client
+                        .channel('dm-' + me)
+                        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `recipient_id=eq.${me}` }, (p) => onMessage(p.new))
+                        .subscribe();
+                })
+                .catch(() => {});
+            return () => channel && client.removeChannel(channel);
+        },
+
+        // ---- reports about people ----
+        async reportUser(userIdArg, reason, details = '') {
+            const { error } = await client.from('user_reports').insert({ target_id: userIdArg, reason, details });
+            if (error && error.code !== '23505') throw error;
+        },
+        async staffClearFlag(userIdArg) {
+            await must(client.rpc('staff_clear_flag', { target: userIdArg }));
+        },
+
+        // ---- the Lounge ----
+        async loungeStatus() {
+            try {
+                return await invoke('furzone-lounge', { action: 'status' });
+            } catch {
+                return { sending: false, reading: false };
+            }
+        },
+        async loungeMessages(before = null) {
+            let q = client
+                .from('chat_messages')
+                .select(`id, source, body, created_at, user_id, discord_author, discord_avatar, user:profiles!chat_messages_user_id_fkey(${PROFILE_COLS})`)
+                .order('created_at', { ascending: false })
+                .limit(60);
+            if (before) q = q.lt('created_at', before);
+            const rows = await must(q);
+            const people = await decorate(rows.map((r) => (r.user ? shapeProfile(r.user) : null)));
+            return rows.map((r, i) => ({ ...r, user: people[i] })).reverse();
+        },
+        async loungeSend(body) {
+            try {
+                return await invoke('furzone-lounge', { action: 'send', body });
+            } catch (e) {
+                // The bridge isn't deployed: post straight to the Lounge (FurZone only).
+                if (e.status === 404) return must(client.from('chat_messages').insert({ body }).select('*').single());
+                throw e;
+            }
+        },
+        async loungeSync() {
+            try {
+                return await invoke('furzone-lounge', { action: 'sync' });
+            } catch {
+                return { added: 0 };
+            }
+        },
+        async loungeDelete(id) {
+            await must(client.from('chat_messages').delete().eq('id', id));
+        },
+        subscribeLounge(onChange) {
+            const channel = client
+                .channel('lounge')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => onChange())
+                .subscribe();
+            return () => client.removeChannel(channel);
+        },
+
+        // ---- news ----
+        async news() {
+            return must(client.from('announcements').select('*').order('published_at', { ascending: false }).limit(40));
+        },
+        async refreshNews() {
+            try {
+                return await invoke('vrchat-news', {});
+            } catch {
+                return { added: 0 };
+            }
+        },
+        async postAnnouncement(title, body, url) {
+            return must(client.rpc('post_announcement', { p_title: title, p_body: body, p_url: url || null }));
+        },
+
+        // ---- search ----
+        async searchPosts(q) {
+            const rows = await must(client.rpc('search_posts', { p_query: q, p_limit: 30 }));
+            return rows.map(shapePost);
         },
 
         async unlink(provider) {

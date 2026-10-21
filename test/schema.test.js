@@ -462,3 +462,168 @@ test('explore: trending, popular, most viewed and newest, with time and type fil
     assert.ok(!(await run('newest', 'all', 'text')).includes(pic.id));
     await assert.rejects(as(null, `select * from explore('trending', 'week', 'all', 10, 0)`), /permission denied/);
 });
+
+// ---------------------------------------------------------------- private accounts
+
+test('private accounts: posts only for approved followers, follow requests, going public', async () => {
+    for (const n of ['priv', 'fan1', 'fan2', 'stranger']) if (!users[n]) await signUp(n);
+    const [p] = await as('priv', `insert into posts (caption) values ('secret post #hidden') returning id`);
+    await as('fan1', 'insert into follows (followee_id) values ($1)', [users.priv]);
+    await as('priv', 'update profiles set is_private = true where id = $1', [users.priv]);
+    // Existing followers keep access; others see nothing, not even through the feed or comments.
+    assert.equal((await as('fan1', 'select id from posts where id = $1', [p.id])).length, 1);
+    assert.equal((await as('stranger', 'select id from posts where id = $1', [p.id])).length, 0);
+    assert.equal((await as('stranger', `select id from feed('all') where id = $1`, [p.id])).length, 0);
+    assert.equal((await as('stranger', `select id from explore('newest', 'all', 'all', 60, 0) where id = $1`, [p.id])).length, 0);
+    const [c] = await as('fan1', `insert into comments (post_id, body) values ($1, 'hi') returning id`, [p.id]);
+    assert.equal((await as('stranger', 'select id from comments where id = $1', [c.id])).length, 0);
+    await assert.rejects(as('stranger', 'insert into boops (post_id) values ($1)', [p.id]), /row-level security/);
+    // Following directly is refused; asking works, once.
+    await assert.rejects(as('stranger', 'insert into follows (followee_id) values ($1)', [users.priv]), /row-level security/);
+    assert.equal((await as('stranger', 'select request_follow($1) as r', [users.priv]))[0].r, 'requested');
+    assert.equal((await as('stranger', 'select request_follow($1) as r', [users.priv]))[0].r, 'requested');
+    assert.equal((await as('priv', 'select requester_id from follow_requests')).length, 1);
+    assert.equal((await as('fan2', 'select * from follow_requests')).length, 0, 'other people cannot see requests');
+    await assert.rejects(as('fan2', 'select answer_follow_request($1, true)', [users.stranger]), /gone/);
+    await as('priv', 'select answer_follow_request($1, true)', [users.stranger]);
+    assert.equal((await as('stranger', 'select id from posts where id = $1', [p.id])).length, 1);
+    // A pending request becomes a follow when the account goes public again.
+    assert.equal((await as('fan2', 'select request_follow($1) as r', [users.priv]))[0].r, 'requested');
+    await as('priv', 'update profiles set is_private = false where id = $1', [users.priv]);
+    assert.equal((await admin('select 1 from follows where follower_id = $1 and followee_id = $2', [users.fan2, users.priv])).length, 1);
+    assert.equal((await admin('select 1 from follow_requests where target_id = $1', [users.priv])).length, 0);
+    // Public accounts: request_follow just follows.
+    assert.equal((await as('fan1', 'select request_follow($1) as r', [users.stranger]))[0].r, 'following');
+    await assert.rejects(as('priv', `update profiles set dm_policy = 'whoever' where id = $1`, [users.priv]), /check constraint/);
+});
+
+// ---------------------------------------------------------------- messages, labels, lounge, news, search
+
+test('messages: requests from strangers, privacy settings, blocks, archive and delete', async () => {
+    for (const n of ['dm_a', 'dm_b', 'dm_c', 'dm_quiet']) if (!users[n]) await signUp(n);
+    // B doesn't follow A: A's first message is a request for B.
+    await as('dm_a', `select send_dm($1, 'hey!')`, [users.dm_b]);
+    let [t] = await as('dm_b', 'select state, unread, last_body from dm_threads where other_id = $1', [users.dm_a]);
+    assert.deepEqual([t.state, t.unread, t.last_body], ['request', 1, 'hey!']);
+    assert.equal((await as('dm_a', 'select state from dm_threads where other_id = $1', [users.dm_b]))[0].state, 'open');
+    assert.equal(Number((await as('dm_b', 'select requests from dm_counts()'))[0].requests), 1);
+    // Only the two people can read it.
+    assert.equal((await as('dm_c', 'select * from messages')).length, 0);
+    assert.equal((await as('dm_c', 'select * from dm_messages($1)', [users.dm_a])).length, 0);
+    await assert.rejects(as('dm_c', `insert into messages (recipient_id, body) values ($1, 'x')`, [users.dm_b]), /permission denied/);
+    // Replying accepts it; read receipts.
+    await as('dm_b', `select send_dm($1, 'hi back')`, [users.dm_a]);
+    assert.equal((await as('dm_b', 'select state from dm_threads where other_id = $1', [users.dm_a]))[0].state, 'open');
+    await as('dm_b', 'select dm_mark_read($1)', [users.dm_a]);
+    const msgs = await as('dm_a', 'select sender_id, body, read_at from dm_messages($1)', [users.dm_b]);
+    assert.deepEqual(msgs.map((m) => m.body), ['hi back', 'hey!']);
+    assert.ok(msgs[1].read_at, 'A sees B read it');
+    // Archive and delete on your own side only.
+    await as('dm_a', `select dm_set_state($1, 'archived')`, [users.dm_b]);
+    await as('dm_b', `select send_dm($1, 'still there?')`, [users.dm_a]);
+    [t] = await as('dm_a', 'select state, unread from dm_threads where other_id = $1', [users.dm_b]);
+    assert.deepEqual([t.state, t.unread], ['archived', 2], 'stays archived, unread keeps counting');
+    await as('dm_a', `select dm_set_state($1, 'hidden')`, [users.dm_b]);
+    assert.equal((await as('dm_a', 'select * from dm_messages($1)', [users.dm_b])).length, 0, 'cleared for A');
+    assert.equal((await as('dm_b', 'select * from dm_messages($1)', [users.dm_a])).length, 3, 'still there for B');
+    await as('dm_b', `select send_dm($1, 'new one')`, [users.dm_a]);
+    assert.equal((await as('dm_a', 'select state from dm_threads where other_id = $1', [users.dm_b]))[0].state, 'open');
+    assert.equal((await as('dm_a', 'select * from dm_messages($1)', [users.dm_b])).length, 1);
+    // "Who can message me".
+    await as('dm_quiet', `update profiles set dm_policy = 'nobody' where id = $1`, [users.dm_quiet]);
+    await assert.rejects(as('dm_c', `select send_dm($1, 'hello')`, [users.dm_quiet]), /isn't taking messages/);
+    await as('dm_quiet', `update profiles set dm_policy = 'following' where id = $1`, [users.dm_quiet]);
+    await assert.rejects(as('dm_c', `select send_dm($1, 'hello')`, [users.dm_quiet]), /don't follow/);
+    await as('dm_quiet', 'insert into follows (followee_id) values ($1)', [users.dm_c]);
+    await as('dm_c', `select send_dm($1, 'hello')`, [users.dm_quiet]);
+    // Blocks stop messages both ways.
+    await as('dm_quiet', 'insert into blocks (blocked_id) values ($1)', [users.dm_c]);
+    await assert.rejects(as('dm_c', `select send_dm($1, 'hi?')`, [users.dm_quiet]), /can't message/);
+    await assert.rejects(as('dm_quiet', `select send_dm($1, 'hi?')`, [users.dm_c]), /can't message/);
+    await assert.rejects(as('dm_a', `select send_dm($1, '   ')`, [users.dm_b]), /1-2000/);
+});
+
+test('report labels: 3+ different people, most common reason, staff can clear, staff never labelled', async () => {
+    await staffTeam();
+    for (const n of ['spammy', 'rep_1', 'rep_2', 'rep_3', 'rep_4']) if (!users[n]) await signUp(n);
+    const flags = async (name) => (await as('rep_1', 'select * from user_flags($1)', [[users[name]]]))[0] || null;
+    await as('rep_1', `insert into user_reports (target_id, reason) values ($1, 'spam')`, [users.spammy]);
+    await as('rep_2', `insert into user_reports (target_id, reason) values ($1, 'scam')`, [users.spammy]);
+    assert.equal(await flags('spammy'), null, 'two people are not enough');
+    await assert.rejects(as('rep_1', `insert into user_reports (target_id, reason) values ($1, 'spam')`, [users.spammy]), /duplicate/);
+    await assert.rejects(as('rep_1', `insert into user_reports (target_id, reason) values ($1, 'weird')`, [users.spammy]), /check constraint/);
+    await assert.rejects(as('rep_1', 'select * from user_reports'), /permission denied/);
+    // A report on one of their posts counts too.
+    const [p] = await as('spammy', `insert into posts (caption) values ('buy followers') returning id`);
+    await as('rep_3', `insert into reports (post_id, reason) values ($1, 'Spam or scam')`, [p.id]);
+    let f = await flags('spammy');
+    assert.equal(f.label, 'spam');
+    assert.equal(Number(f.reporters), 3);
+    await assert.rejects(as('helper', 'select staff_clear_flag($1)', [users.spammy]), /Only mods/);
+    await as('modder', 'select staff_clear_flag($1)', [users.spammy]);
+    assert.equal(await flags('spammy'), null, 'cleared');
+    for (const n of ['rep_1', 'rep_2', 'rep_3', 'rep_4']) await as(n, `insert into user_reports (target_id, reason) values ($1, 'bad') on conflict do nothing`, [users.helper]).catch(() => {});
+    assert.equal(await flags('helper'), null, 'staff are never labelled');
+});
+
+test('lounge: logged-in chat, limits and blocks apply, only the server bridges Discord', async () => {
+    await staffTeam();
+    for (const n of ['chatty', 'lurker', 'muted1']) if (!users[n]) await signUp(n);
+    const [m] = await as('chatty', `insert into chat_messages (body) values ('hello lounge') returning id, source, user_id`);
+    assert.equal(m.source, 'furzone');
+    assert.equal(m.user_id, users.chatty);
+    await assert.rejects(as('chatty', `insert into chat_messages (body, source) values ('x', 'discord')`), /permission denied/);
+    await assert.rejects(as('chatty', `insert into chat_messages (body, discord_author) values ('x', 'Fake')`), /permission denied/);
+    await assert.rejects(as(null, 'select * from chat_messages'), /permission denied/);
+    assert.ok((await as('lurker', 'select body from chat_messages')).some((r) => r.body === 'hello lounge'));
+    await as('lurker', 'insert into blocks (blocked_id) values ($1)', [users.chatty]);
+    assert.ok(!(await as('lurker', 'select body from chat_messages')).some((r) => r.body === 'hello lounge'), 'blocked people disappear');
+    await as('modder', `select staff_restrict($1, false, false, true, false, false, 1, 'spam')`, [users.muted1]);
+    await assert.rejects(as('muted1', `insert into chat_messages (body) values ('hi')`), /turned off chat/);
+    await assert.rejects(as('muted1', `select send_dm($1, 'hi')`, [users.chatty]), /turned off messaging/);
+    // The bridge functions are for the server only.
+    for (const f of [`lounge_claim_sync(3000)`, `lounge_ingest('[]'::jsonb, null)`, `news_claim_fetch()`, `news_ingest('[]'::jsonb)`]) {
+        await assert.rejects(as('chatty', `select * from ${f}`), /permission denied/);
+    }
+    // The server function's role (service_role) is the only one allowed to call these.
+    await db.exec('reset role; set role service_role');
+    try {
+        const first = (await db.query('select * from lounge_claim_sync(3000)')).rows;
+        assert.equal(first.length, 1, 'first sync allowed');
+        assert.equal((await db.query('select * from lounge_claim_sync(3000)')).rows.length, 0, 'too soon');
+        const rows = [{ body: 'from discord', discord_id: '111', author: 'DiscordFox', avatar: 'https://cdn.discordapp.com/avatars/1/a.png' }, { body: '  ', discord_id: '112', author: 'x' }];
+        assert.equal((await db.query('select lounge_ingest($1, $2) as n', [JSON.stringify(rows), '112'])).rows[0].n, 1);
+        assert.equal((await db.query('select lounge_ingest($1, $2) as n', [JSON.stringify(rows), '112'])).rows[0].n, 0, 'no duplicates');
+        await db.query(`select lounge_mark_relayed($1, '999')`, [m.id]);
+        assert.equal((await db.query('select news_claim_fetch() as ok')).rows[0].ok, true);
+        assert.equal((await db.query('select news_claim_fetch() as ok')).rows[0].ok, false, 'at most every 30 minutes');
+        const items = [{ external_id: 'steam-1', title: 'VRChat 2026.4.1', body: 'Fixes', url: 'https://store.steampowered.com/news/1', published_at: '2026-10-01T00:00:00Z' }, { external_id: 'steam-2', title: 'Bad url', url: 'javascript:alert(1)' }];
+        assert.equal((await db.query('select * from news_ingest($1)', [JSON.stringify(items)])).rows.length, 2);
+        assert.equal((await db.query('select * from news_ingest($1)', [JSON.stringify(items)])).rows.length, 0, 'only new ones come back');
+    } finally {
+        await db.exec('reset role');
+    }
+    const [d] = await as('chatty', `select source, user_id, discord_author from chat_messages where discord_id = '111'`);
+    assert.deepEqual([d.source, d.user_id, d.discord_author], ['discord', null, 'DiscordFox']);
+    assert.equal((await as('chatty', `select discord_id from chat_messages where id = $1`, [m.id]))[0].discord_id, '999');
+    const news = await as('lurker', `select title, url from announcements where source = 'vrchat' order by title`);
+    assert.deepEqual(news.map((n) => n.url), [null, 'https://store.steampowered.com/news/1'], 'only https links are kept');
+    await assert.rejects(as('modder', `select post_announcement('Hi', 'x', null)`), /Only admins/);
+    await as('chief', `select post_announcement('Welcome to FurZone!', 'Be nice', 'https://example.com')`);
+    // Delete: your own, or mods for anyone's.
+    await as('modder', 'delete from chat_messages where id = $1', [m.id]);
+    assert.equal((await admin('select id from chat_messages where id = $1', [m.id])).length, 0);
+});
+
+test('search posts by words or #tag, never hidden or private posts', async () => {
+    for (const n of ['finder', 'artsy']) if (!users[n]) await signUp(n);
+    await as('artsy', `insert into posts (caption) values ('My new dragon sketch #sketchbook')`);
+    const titles = async (q) => (await as('finder', 'select caption from search_posts($1)', [q])).map((r) => r.caption);
+    assert.ok((await titles('dragon')).some((c) => c.includes('dragon sketch')));
+    assert.ok((await titles('#sketchbook')).some((c) => c.includes('dragon sketch')));
+    assert.deepEqual(await titles('%'), [], 'wildcards are just text');
+    assert.deepEqual(await titles('x'), [], 'too short');
+    await as('priv', 'update profiles set is_private = true where id = $1', [users.priv]);
+    assert.ok(!(await titles('secret post')).length, 'private posts stay private');
+    await as('priv', 'update profiles set is_private = false where id = $1', [users.priv]);
+});

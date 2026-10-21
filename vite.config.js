@@ -1,7 +1,8 @@
 import { defineConfig, loadEnv } from 'vite';
 
 // Content Security Policy: scripts and styles only from the app itself; network only to our Supabase
-// project and GitHub (update checks); media only from Supabase storage or local files being uploaded.
+// project and GitHub (update checks); media only from Supabase storage or local files being uploaded, plus
+// Discord's image server for the profile pictures of people chatting from Discord in the Lounge.
 function csp(env) {
     let supa = '';
     try {
@@ -16,7 +17,7 @@ function csp(env) {
         "script-src 'self'",
         "style-src 'self'",
         "font-src 'self' data:",
-        `img-src 'self' data: blob:${https}`,
+        `img-src 'self' data: blob:${https} https://cdn.discordapp.com`,
         `media-src 'self' blob:${https}`,
         `connect-src 'self'${https}${wss} https://api.github.com`,
         "object-src 'none'",

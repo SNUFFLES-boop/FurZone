@@ -264,18 +264,151 @@ await test('blocking someone removes their posts', async () => {
     await page.getByRole('button', { name: 'Close' }).click();
 });
 
-await test('inbox shows boops and follows and clears the badge', async () => {
+// Text that should never reach the screen (a value that was missing, shown as a word).
+async function noJunkText(where) {
+    const t = await page.locator('body').innerText();
+    assert.doesNotMatch(t, /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]|falsefalse/, 'junk text on ' + where);
+}
+
+await test('For You: categories and post search', async () => {
+    await page.locator('.tabbar .nav-home').click();
+    await page.locator('.cat-chip', { hasText: 'Dances' }).waitFor();
+    await page.locator('.cat-chip', { hasText: 'VRChat' }).click();
+    await page.locator('.cat-chip.on', { hasText: 'VRChat' }).waitFor();
+    await page.locator('.cat-chip', { hasText: 'All' }).click();
+    await page.locator('.slide').first().waitFor();
+    await page.getByRole('button', { name: 'Search' }).first().click();
+    await page.locator('.sheet input[type=search]').fill('suit');
+    await page.locator('.sheet .tile').first().waitFor();
+    await shot('05b-search');
+    await page.getByRole('button', { name: 'Close' }).click();
+});
+
+await test('inbox: activity, then messages with chats and requests', async () => {
     await page.locator('.tabbar .nav-inbox').click();
+    await page.locator('.inbox-tab.on', { hasText: 'Activity' }).waitFor();
     await page.getByRole('button', { name: 'Show me what it looks like' }).click();
     await page.locator('.note', { hasText: 'started following you' }).waitFor();
     await page.locator('.note', { hasText: 'booped your post' }).waitFor();
     await shot('11-inbox');
-    assert.equal(await page.locator('.tabbar .nav-inbox .badge').isHidden(), true);
+    await noJunkText('activity');
+    // Activity is read now; the badge still counts the unread message and the message request.
+    await page.locator('.tabbar .nav-inbox .badge', { hasText: '2' }).waitFor();
+
+    await page.locator('.inbox-tab', { hasText: 'Messages' }).click();
+    await page.locator('.thread', { hasText: 'Mochi' }).waitFor();
+    await shot('11b-messages');
+    await page.locator('.filter-chip', { hasText: 'Requests' }).click();
+    const scam = page.locator('.thread', { hasText: 'FREE VRC+' });
+    await scam.locator('.flag-pill', { hasText: 'Possible scam' }).waitFor();
+    await scam.getByText('Careful: several people reported this account').waitFor();
+    await noJunkText('requests');
+    await shot('11c-requests');
+    await scam.getByRole('button', { name: 'Delete' }).click();
+    await toastSays('Request deleted');
+    await text('No message requests');
+
+    await page.locator('.filter-chip', { hasText: 'Chats' }).click();
+    await page.locator('.thread', { hasText: 'Mochi' }).locator('.thread-link').click();
+    await page.locator('.dm-page .bubble', { hasText: 'Welcome to FurZone' }).waitFor();
+    await page.getByRole('textbox', { name: 'Message' }).fill('hi mochi!! <b>not bold</b>');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await page.locator('.bubble-row.mine .bubble', { hasText: '<b>not bold</b>' }).waitFor();
+    assert.equal(await page.locator('.bubble b').count(), 0, 'messages are text, never HTML');
+    // The demo account writes back, live.
+    await page.locator('.bubble-row:not(.mine) .bubble').nth(1).waitFor({ timeout: 5000 });
+    await shot('11d-conversation');
+    await noJunkText('conversation');
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('button', { name: 'Archive chat' }).click();
+    await toastSays('Archived');
+    await page.locator('.dm-note', { hasText: 'archived' }).waitFor();
+    await page.getByRole('button', { name: 'Unarchive' }).click();
+    await toastSays('Moved back to Chats');
+    await page.locator('.tabbar .nav-inbox .badge').waitFor({ state: 'hidden' });
+});
+
+await test('the Lounge: chat shared with Discord', async () => {
+    await page.evaluate(() => (location.hash = '#/inbox/lounge'));
+    await page.locator('.lounge-status', { hasText: 'Linked with Discord' }).waitFor();
+    await page.locator('.chat-line.from-discord', { hasText: 'Rexy' }).waitFor();
+    await page.getByRole('textbox', { name: 'Message' }).fill('hello lounge 🐾');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await page.locator('.chat-line.mine', { hasText: 'hello lounge' }).waitFor();
+    await page.getByRole('textbox', { name: 'Message' }).fill('second message');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await page.locator('.chat-line', { hasText: 'second message' }).waitFor();
+    // Someone on Discord answers (demo), and it shows up by itself.
+    await page.locator('.chat-line.from-discord', { hasText: 'Kiwi' }).last().waitFor();
+    await shot('11e-lounge');
+    await noJunkText('lounge');
+    const composer = await page.locator('.chat-composer').boundingBox();
+    const tabbar = await page.locator('.tabbar').boundingBox();
+    assert.ok(composer.y + composer.height <= tabbar.y + 1, 'the message box sits above the tab bar');
+});
+
+await test('news: VRChat updates and announcements', async () => {
+    await page.locator('.inbox-tab', { hasText: 'News' }).click();
+    await page.locator('.news-card.src-vrchat').first().waitFor();
+    await page.locator('.news-card.src-furzone').first().waitFor();
+    await shot('11f-news');
+    await noJunkText('news');
+});
+
+await test('private accounts and report labels', async () => {
+    await page.evaluate(() => (location.hash = '#/u/shyotter'));
+    await page.locator('.profile-id').waitFor();
+    await page.locator('.profile-id .lock').waitFor();
+    await page.getByRole('button', { name: 'Request', exact: true }).click();
+    await page.getByRole('button', { name: 'Requested' }).waitFor();
+    await page.evaluate(() => (location.hash = '#/u/freevbux'));
+    await page.locator('.profile-flag .flag-pill', { hasText: 'Possible scam' }).waitFor();
+    await noJunkText('flagged profile');
+    await shot('09b-flagged');
+    await page.evaluate(() => (location.hash = '#/settings'));
+    await page.getByRole('switch', { name: /Private account/ }).check();
+    await toastSays('Your account is private now');
+    await page.getByRole('tab', { name: 'People I follow' }).click();
+    await toastSays('Saved');
+});
+
+await test('appearance: theme, background, calm motion', async () => {
+    await page.getByRole('radio', { name: 'Ocean' }).click();
+    assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--violet-rgb').trim()), '59 130 246');
+    await page.locator('canvas.particles').waitFor({ state: 'attached' });
+    assert.equal(await page.locator('canvas.particles').isVisible(), true);
+    await page.getByRole('tab', { name: 'Stars' }).click();
+    await page.getByRole('switch', { name: /Calm motion/ }).check();
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('calm')), true);
+    await shot('12b-appearance');
+    await page.getByRole('tab', { name: 'None' }).click();
+    assert.equal(await page.locator('canvas.particles').isVisible(), false);
+    await page.getByRole('button', { name: 'Reset appearance' }).click();
+    await toastSays('Back to the default look');
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('calm')), false);
+    assert.equal(await page.locator('canvas.particles').isVisible(), true);
+    // The feed covers the screen, so the background stops drawing there.
+    await page.locator('.tabbar .nav-home').click();
+    await page.locator('.slide').first().waitFor();
+    assert.equal(await page.locator('canvas.particles').isVisible(), false);
+    // Back to a public account for the rest of the tests.
+    await page.evaluate(() => (location.hash = '#/settings'));
+    await page.getByRole('switch', { name: /Private account/ }).uncheck();
+    await page.getByRole('button', { name: 'Make public' }).click();
+    await toastSays('Your account is public now');
 });
 
 await test('staff: ranks show as badges, and the owner reviews reports, limits and promotes', async () => {
     // In the demo, the first account made is the owner.
     await page.evaluate(() => (location.hash = '#/home'));
+    // Staff still see posts from people they blocked (to moderate them): scroll until a mod's post shows.
+    await page.locator('.slide').first().waitFor();
+    await page.locator('.slides').evaluate(async (el) => {
+        for (let i = 0; i < 30 && !el.querySelector('.role-badge.role-mod'); i++) {
+            el.scrollTop = el.scrollHeight;
+            await new Promise((r) => setTimeout(r, 150));
+        }
+    });
     await page.locator('.role-badge.role-mod').first().waitFor();
     await page.evaluate(() => (location.hash = '#/settings'));
     await page.locator('.settings-item', { hasText: 'Reports' }).click();
@@ -307,8 +440,8 @@ await test('staff: ranks show as badges, and the owner reviews reports, limits a
     await page.locator('.profile-id .role-badge.role-mod').waitFor();
 
     await page.evaluate(() => (location.hash = '#/staff/team'));
-    await page.locator('.person', { hasText: 'testfox' }).locator('.role-owner').waitFor();
-    await page.locator('.person', { hasText: 'skysergal' }).locator('.role-mod').waitFor();
+    await page.locator('.person', { hasText: 'testfox' }).locator('.role-badge.role-owner').waitFor();
+    await page.locator('.person', { hasText: 'skysergal' }).locator('.role-badge.role-mod').waitFor();
     await page.evaluate(() => (location.hash = '#/staff/limited'));
     const limited = page.locator('.report-card', { hasText: 'skysergal' });
     await limited.getByText('Posting turned off').waitFor();

@@ -1,11 +1,14 @@
 # FurZone 🐾
 
-A social app for furries: share art, fursuits and VRChat moments, boop posts, follow your pack.
+A social app for furries: share art, fursuits and VRChat moments, boop posts, follow your pack, chat in
+private messages or the Lounge (linked with Discord).
 Android and Windows apps, with **Discord** and **VRChat** connected-account badges.
 
 - `web/` — the app (Vite, plain JavaScript; same code in both apps)
 - `supabase/schema.sql` — the database and all its security rules
 - `supabase/functions/vrchat-verify/` — the server check behind the VRChat badge
+- `supabase/functions/furzone-lounge/` — the Lounge chat and its two-way Discord bridge
+- `supabase/functions/vrchat-news/` — VRChat update announcements (Inbox → News)
 - `android/` — the Android app (WebView shell, self-updater)
 - `desktop/` — the Windows app (WebView2 shell, installer, self-updater)
 - `.github/workflows/release.yml` — tests, builds and publishes both apps on every push

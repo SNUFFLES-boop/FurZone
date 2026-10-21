@@ -20,6 +20,9 @@ export function normalizeProfile(row, mediaUrl) {
         posts_count: Number(row.posts_count) || 0,
         connections: Array.isArray(row.connections) ? row.connections : [],
         role: row.role || null,
+        flag: row.flag || null,
+        is_private: !!row.is_private,
+        dm_policy: row.dm_policy || 'everyone',
         restriction: normalizeRestriction(row.restriction),
         created_at: row.created_at || null
     };

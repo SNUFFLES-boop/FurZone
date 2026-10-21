@@ -1,6 +1,6 @@
 // Staff ranks and tools: owner > admin > mod > staff. The database enforces every rule (supabase/schema.sql);
 // this file only shows the buttons that will work for the person using the app.
-import { h, icon, avatar, toast, errorText, withBusy, field, sheet, confirmDialog, spinner, segmented, emptyState, clear } from './ui.js';
+import { h, icon, avatar, toast, errorText, withBusy, field, sheet, confirmDialog, spinner, segmented, emptyState, clear, fill } from './ui.js';
 import { app } from './state.js';
 import { timeAgo } from './format.js';
 import { logo } from './icons.js';
@@ -71,7 +71,8 @@ export function staffStrip(p, reload) {
             const canEdit = myRank() >= 2 && outranks(p.role, p.id);
             const lift = canEdit && h('button', { class: 'chip-btn ok', text: r.banned ? 'Unban' : 'Lift limits' });
             if (lift) lift.onclick = () => withBusy(lift, async () => (await liftAll(p)) && reload && reload());
-            strip.replaceChildren(
+            fill(
+                strip,
                 icon('ban'),
                 h('span', { class: 'grow' }, h('strong', { text: restrictionText(r) }), r.reason ? h('span', { class: 'muted', text: ` · “${r.reason}”` }) : null),
                 lift,
@@ -245,17 +246,17 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
         )
     );
 
-    const fill = (promise, render, empty) => {
+    const load = (promise, render, empty) => {
         body.replaceChildren(spinner());
         promise
             .then((items) => alive && body.replaceChildren(...(items.length ? items.map(render) : [empty])))
             .catch((e) => alive && body.replaceChildren(h('p', { class: 'form-error pad', text: errorText(e) })));
     };
 
-    if (tab === 'reports') fill(app.backend.staffReports(), reportCard, emptyState('check', 'All clear', 'No reported posts right now.'));
-    else if (tab === 'limited') fill(app.backend.staffLimited(), limitedRow, emptyState('check', 'Nobody is banned or limited', ''));
-    else if (tab === 'team') fill(app.backend.staffTeam(), teamRow, emptyState('user', 'No team yet', ''));
-    else fill(app.backend.staffLog(), logRow, emptyState('shield', 'Nothing logged yet', ''));
+    if (tab === 'reports') load(app.backend.staffReports(), reportCard, emptyState('check', 'All clear', 'No reported posts right now.'));
+    else if (tab === 'limited') load(app.backend.staffLimited(), limitedRow, emptyState('check', 'Nobody is banned or limited', ''));
+    else if (tab === 'team') load(app.backend.staffTeam(), teamRow, emptyState('user', 'No team yet', ''));
+    else load(app.backend.staffLog(), logRow, emptyState('shield', 'Nothing logged yet', ''));
 
     if (tab === 'team' && myRank() >= 3) {
         view.querySelector('.staff').append(h('p', { class: 'fine center pad', text: 'To give someone a rank: open their profile → ⋯ → Staff tools.' }));
@@ -344,7 +345,8 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
                     }
                 });
         }
-        row.append(
+        fill(
+            row,
             h(
                 'a',
                 { class: 'report-who', href: `#/u/${x.user.username}` },

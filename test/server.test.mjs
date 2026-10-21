@@ -67,5 +67,54 @@ const cm = (await call(FUR, '/comments', { method: 'POST', body: JSON.stringify(
 check('staff: delete comment', await call(OWNER, '/rpc/staff_delete_comment', { method: 'POST', body: JSON.stringify({ p_comment: cm.id }) }));
 check('staff: delete post', await call(OWNER, '/rpc/staff_delete_post', { method: 'POST', body: JSON.stringify({ p_post: post.id }) }));
 check('normal person cannot use staff tools', await call(FUR, '/rpc/staff_reports', { method: 'POST', body: '{}' }), (r) => r.status >= 400 && /Only staff/.test(r.body.message));
+
+// ---- private accounts ----
+const rpc = (who, name, args = {}) => call(who, '/rpc/' + name, { method: 'POST', body: JSON.stringify(args) });
+check('go private', await call(FUR, `/profiles?id=eq.${FUR}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ is_private: true, dm_policy: 'following' }) }));
+check('cannot follow a private account directly', await call(OWNER, '/follows', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ followee_id: FUR }) }), (r) => r.status >= 400);
+check('ask to follow', await rpc(OWNER, 'request_follow', { target: FUR }), (r) => r.status === 200 && r.body === 'requested');
+check('follow requests + who asked', await call(FUR, `/follow_requests?select=${q(`created_at, requester:profiles!follow_requests_requester_id_fkey(${PC})`)}&target_id=eq.${FUR}&order=created_at.desc`), (r) => r.status === 200 && r.body[0].requester.username === 'owner1');
+check('follow request count', await call(FUR, `/follow_requests?select=requester_id&target_id=eq.${FUR}`, { method: 'HEAD', headers: { Prefer: 'count=exact' } }), (r) => r.status < 300);
+check('my pending request', await call(OWNER, `/follow_requests?select=target_id&requester_id=eq.${OWNER}&target_id=eq.${FUR}`), (r) => r.status === 200 && r.body.length === 1);
+check('approve it', await rpc(FUR, 'answer_follow_request', { requester: OWNER, accept: true }));
+check('now following', await call(OWNER, `/follows?select=followee_id&follower_id=eq.${OWNER}&followee_id=eq.${FUR}`), (r) => r.status === 200 && r.body.length === 1);
+check('nobody can change someone else\'s privacy', await call(OWNER, `/profiles?id=eq.${FUR}`, { method: 'PATCH', body: JSON.stringify({ is_private: false }) }), (r) => r.status >= 400 || (Array.isArray(r.body) && r.body.length === 0));
+check('go public again', await call(FUR, `/profiles?id=eq.${FUR}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ is_private: false, dm_policy: 'everyone' }) }));
+
+// ---- direct messages ----
+check('send a message', await rpc(OWNER, 'send_dm', { target: FUR, body: 'hi <b>there</b>' }), (r) => r.status === 200 && typeof r.body === 'string');
+check('conversation list + who', await call(FUR, `/dm_threads?select=${q(`other_id, state, last_message_at, last_body, last_from_me, unread, other:profiles!dm_threads_other_id_fkey(${PC})`)}&user_id=eq.${FUR}&state=eq.open&order=last_message_at.desc&limit=100`), (r) => r.status === 200 && r.body[0].other.username === 'owner1' && r.body[0].unread === 1);
+check('one conversation state', await call(FUR, `/dm_threads?select=state,unread&user_id=eq.${FUR}&other_id=eq.${OWNER}`), (r) => r.status === 200 && r.body[0].state === 'open');
+check('message counts', await rpc(FUR, 'dm_counts'), (r) => r.status === 200 && Number(r.body[0].unread) === 1);
+check('read the messages', await rpc(FUR, 'dm_messages', { other: OWNER, p_before: null, p_limit: 50 }), (r) => r.status === 200 && r.body[0].body === 'hi <b>there</b>');
+check('mark read', await rpc(FUR, 'dm_mark_read', { other: OWNER }));
+check('reply', await rpc(FUR, 'send_dm', { target: OWNER, body: 'hey!' }));
+check('seen receipt', await rpc(OWNER, 'dm_messages', { other: FUR, p_before: null, p_limit: 50 }), (r) => r.status === 200 && r.body.find((m) => m.sender_id === OWNER).read_at);
+check('archive', await rpc(FUR, 'dm_set_state', { other: OWNER, new_state: 'archived' }));
+check('archived list', await call(FUR, `/dm_threads?select=other_id&user_id=eq.${FUR}&state=eq.archived`), (r) => r.status === 200 && r.body.length === 1);
+check('nobody reads other people\'s messages', await call(FUR, '/messages?select=*'), (r) => r.status >= 400 || r.body.every((m) => m.sender_id === FUR || m.recipient_id === FUR));
+check('messages can\'t be written directly', await call(FUR, '/messages', { method: 'POST', body: JSON.stringify({ recipient_id: OWNER, body: 'sneaky' }) }), (r) => r.status >= 400);
+
+// ---- report labels ----
+check('report a person', await call(OWNER, '/user_reports', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ target_id: FUR, reason: 'spam', details: '' }) }));
+check('report labels lookup', await rpc(FUR, 'user_flags', { ids: [FUR, OWNER] }), (r) => r.status === 200 && r.body.length === 0);
+check('staff: clear a label', await rpc(OWNER, 'staff_clear_flag', { target: FUR }));
+
+// ---- the Lounge ----
+const chatRow = await call(FUR, '/chat_messages?select=*', { method: 'POST', body: JSON.stringify({ body: 'hello lounge' }) });
+check('chat in the Lounge', chatRow, (r) => r.status === 201 && r.body[0].source === 'furzone');
+check('Lounge messages + who', await call(OWNER, `/chat_messages?select=${q(`id, source, body, created_at, user_id, discord_author, discord_avatar, user:profiles!chat_messages_user_id_fkey(${PC})`)}&order=created_at.desc&limit=60`), (r) => r.status === 200 && r.body[0].user.username === 'fur2');
+check('can\'t pretend to be Discord', await call(FUR, '/chat_messages', { method: 'POST', body: JSON.stringify({ body: 'x', source: 'discord', discord_author: 'Admin' }) }), (r) => r.status >= 400);
+check('only the server pulls Discord', await rpc(FUR, 'lounge_claim_sync', { min_gap_ms: 0 }), (r) => r.status >= 400);
+check('delete own chat message', await call(FUR, `/chat_messages?id=eq.${chatRow.body[0].id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }));
+
+// ---- news ----
+check('post an announcement (owner)', await rpc(OWNER, 'post_announcement', { p_title: 'Hello', p_body: 'News!', p_url: null }));
+check('news list', await call(FUR, '/announcements?select=*&order=published_at.desc&limit=40'), (r) => r.status === 200 && r.body[0].title === 'Hello');
+check('normal people cannot announce', await rpc(FUR, 'post_announcement', { p_title: 'Fake', p_body: '', p_url: null }), (r) => r.status >= 400);
+check('only the server fetches VRChat news', await rpc(FUR, 'news_claim_fetch'), (r) => r.status >= 400);
+
+// ---- search ----
+check('search posts', await rpc(OWNER, 'search_posts', { p_query: 'back', p_limit: 30 }), (r) => r.status === 200 && r.body.length === 1);
 console.log(fails ? `${fails} FAILED` : 'all server queries work');
 process.exit(fails ? 1 : 0);

@@ -6,7 +6,7 @@ name: Test, build and release
 # Secrets (Settings → Secrets and variables → Actions → Secrets):
 #   ANDROID_KEYSTORE_B64       the app's signing key, base64 (every update must use the same key)
 #   ANDROID_KEYSTORE_PASSWORD  its password
-#   SUPABASE_ACCESS_TOKEN      optional: lets this workflow deploy the vrchat-verify server function
+#   SUPABASE_ACCESS_TOKEN      optional: lets this workflow deploy the server functions
 # Variables (same page → Variables):
 #   SUPABASE_PROJECT_REF       optional: the project id, for deploying the function
 on:
@@ -51,8 +51,8 @@ jobs:
             echo "::error title=Server API checks::$(tail -n 40 server-test.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
           fi
           exit $status
-      - name: VRChat verification and helper tests
-        run: node --test test/vrchat.test.js test/format.test.js
+      - name: VRChat, Discord bridge and helper tests
+        run: node --test test/vrchat.test.js test/format.test.js test/bridge.test.js
       - name: Build the app (demo mode, for the click-through tests)
         run: |
           rm -f .env.production
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Deploy the vrchat-verify server function
+      - name: Deploy the server functions (VRChat badge, Lounge, VRChat news)
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
@@ -154,4 +154,6 @@ jobs:
             echo "::notice::SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF not set; deploy the function by hand (SETUP.md)."
             exit 0
           fi
-          npx --yes supabase@2 functions deploy vrchat-verify --project-ref "$PROJECT_REF"
+          for fn in vrchat-verify furzone-lounge vrchat-news; do
+            npx --yes supabase@2 functions deploy "$fn" --project-ref "$PROJECT_REF"
+          done

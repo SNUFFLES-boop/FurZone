@@ -39,25 +39,57 @@ function append(el, children) {
 
 export { icon };
 
+/** Like el.replaceChildren(), but skips empty values (null/false) instead of showing them as text. */
+export function fill(el, ...children) {
+    while (el.firstChild) el.firstChild.remove();
+    append(el, children);
+    return el;
+}
+
 export function clear(el) {
     while (el.firstChild) el.firstChild.remove();
     return el;
 }
 
-/** Round profile picture, or initials on a colour picked from the name. */
+const RANKED = { owner: 'Owner', admin: 'Admin', mod: 'Mod', staff: 'Staff' };
+
+/** Round profile picture, or initials on a colour picked from the name. FurZone staff get a rank shield. */
 export function avatar(user, size = 'md', url) {
     const name = (user && (user.display_name || user.username)) || '?';
     const el = h('span', { class: `avatar avatar-${size}`, 'aria-hidden': 'true' });
+    if (user && RANKED[user.role] && size !== 'xs') {
+        el.append(h('span', { class: `avatar-rank role-${user.role}`, title: `FurZone ${RANKED[user.role]}` }, icon('shieldCheck')));
+    }
     if (url) {
-        el.append(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' }));
+        el.prepend(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' }));
     } else {
         let hash = 0;
         for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
         el.style.setProperty('--hue', String(hash % 360));
         el.classList.add('avatar-initials');
-        el.textContent = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?';
+        el.prepend(name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?');
     }
     return el;
+}
+
+// ---------- report labels ----------
+
+export const FLAG_TEXT = {
+    spam: 'Likely spam',
+    scam: 'Possible scam',
+    nuisance: 'Reported as a nuisance',
+    bad: 'Reported as a bad user'
+};
+
+/** A warning shown next to people that 3 or more others have reported. */
+export function flagPill(flag, size = 'sm') {
+    if (!FLAG_TEXT[flag]) return null;
+    return h(
+        'span',
+        { class: `flag-pill flag-${flag} flag-${size}`, title: 'Several people reported this account', role: 'note' },
+        icon('flag'),
+        h('span', { text: FLAG_TEXT[flag] })
+    );
 }
 
 // ---------- toasts ----------

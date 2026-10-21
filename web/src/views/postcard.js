@@ -1,6 +1,7 @@
 // One post, shown full-height: the media (or a colourful card for text posts), who posted it, the caption and
 // the action rail. Used by the feed and the single-post page.
-import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump } from '../ui.js';
+import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump, flagPill } from '../ui.js';
+import { look } from '../look.js';
 import { captionParts, compactCount, timeAgo, hueOf } from '../format.js';
 import { app, savePref } from '../state.js';
 import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
@@ -50,11 +51,32 @@ function heartBurst(host, x, y) {
     setTimeout(() => burst.remove(), 1000);
 }
 
-/** Small hearts that float up from a button. */
+/** Small hearts that float up from a button. They live on a layer over the whole screen, so nothing clips them. */
+let floatLayer = null;
 export function heartFloat(button, count = 4) {
+    if (!floatLayer || !floatLayer.isConnected) {
+        floatLayer = h('div', { class: 'float-layer', 'aria-hidden': 'true' });
+        document.body.append(floatLayer);
+    }
+    const r = button.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + Math.min(r.height / 2, 24);
     for (let i = 0; i < count; i++) {
-        const heart = h('span', { class: 'heart-float', style: { '--x': Math.round(Math.random() * 40 - 20) + 'px', '--r': Math.round(Math.random() * 40 - 20) + 'deg', animationDelay: i * 70 + 'ms' } }, icon('heart'));
-        button.append(heart);
+        const heart = h(
+            'span',
+            {
+                class: 'heart-float',
+                style: {
+                    left: x + 'px',
+                    top: y + 'px',
+                    '--x': Math.round(Math.random() * 40 - 20) + 'px',
+                    '--r': Math.round(Math.random() * 40 - 20) + 'deg',
+                    animationDelay: i * 70 + 'ms'
+                }
+            },
+            icon('heart')
+        );
+        floatLayer.append(heart);
         setTimeout(() => heart.remove(), 1100 + i * 70);
     }
 }
@@ -227,8 +249,12 @@ export function renderSlide(post, { onRemoved } = {}) {
         }
         if (video) {
             video.muted = app.muted;
-            video.play().catch(() => {});
-            slide.classList.remove('paused');
+            if (look().autoplay) {
+                video.play().catch(() => {});
+                slide.classList.remove('paused');
+            } else {
+                slide.classList.add('paused');
+            }
         }
     };
     slide.deactivate = () => {
@@ -396,7 +422,7 @@ function commentTags(c, post) {
     else if (u.you_follow && u.follows_you) tags.push(['friend', 'Friend']);
     else if (u.you_follow) tags.push(['following', 'Following']);
     else if (u.follows_you) tags.push(['fan', 'Follows you']);
-    return [roleBadge(u.role), ...tags.map(([cls, text]) => h('span', { class: 'ctag ctag-' + cls, text }))];
+    return [roleBadge(u.role), ...tags.map(([cls, text]) => h('span', { class: 'ctag ctag-' + cls, text })), flagPill(u.flag)];
 }
 
 export function openComments(post, onChange) {

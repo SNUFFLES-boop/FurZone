@@ -76,6 +76,32 @@ for this** (never your main account).
 4. Every push to `main` now runs all tests, then publishes **FurZone.apk** and **FurZone_Setup.exe** as a
    release. Installed apps see it and update themselves.
 
+## 5. The Lounge ↔ Discord, and VRChat news — ~10 minutes (optional)
+
+The **Lounge** (Inbox → Lounge) is one chat room. Linked to a Discord channel, messages go both ways: FurZone
+messages show up in Discord under the person's FurZone name, and Discord messages show up in the Lounge with a
+small Discord logo. Without this step the Lounge still works, FurZone-only.
+
+1. **Webhook (FurZone → Discord):** in your Discord server, open the channel's settings → **Integrations →
+   Webhooks → New Webhook** → name it *FurZone* → **Copy Webhook URL**.
+2. **Bot (Discord → FurZone):** in **discord.com/developers/applications**, open your FurZone app → **Bot** →
+   **Reset Token** and copy it. On the same page turn on **Message Content Intent**.
+   Then **OAuth2 → URL Generator**: tick `bot`, then the permissions **View Channels** and **Read Message
+   History** only. Open the link it makes and add the bot to your server.
+3. **Channel ID:** in Discord, **User Settings → Advanced → Developer Mode** on, then right-click the channel →
+   **Copy Channel ID**.
+4. In Supabase: **Edge Functions → Secrets**, add:
+   - `DISCORD_WEBHOOK_URL` — the webhook URL from step 1
+   - `DISCORD_BOT_TOKEN` — the bot token from step 2
+   - `DISCORD_CHANNEL_ID` — the channel ID from step 3
+
+That's it: the Lounge shows **Linked with Discord**. New **VRChat updates** (from VRChat's official
+announcements) appear in Inbox → News, and are also posted to the same channel through the webhook. Admins and
+the owner can post FurZone announcements there too.
+
+Treat the webhook URL and bot token like passwords: anyone who has them can post in that channel. If one leaks,
+delete the webhook / reset the token in Discord and put the new one in Supabase.
+
 ---
 
 ## How it stays safe
@@ -86,6 +112,17 @@ for this** (never your main account).
   things; counters, tags, owners, timestamps and badges are set by the database and can't be faked.
 - **Rate limits in the database** stop spam floods even from scripts: posts, comments, boops, follows,
   blocks, reports, VRChat checks.
+- **Private accounts** (Settings → Privacy): only followers you approve see your posts and their comments.
+  **Who can message me**: everyone, people you follow, or no one new. Messages from people you don't follow
+  wait in **Requests**, and they can't see that you read them until you accept.
+- **Direct messages** can only be read by the two people in them, and are only written through a database
+  function that checks blocks, bans, limits and rate limits (60 messages per 10 minutes, 15 new conversations
+  a day).
+- **Report labels**: when 3 or more different people report an account (spam, scam, nuisance, bad user), a
+  warning shows next to its name for everyone, and a safety warning shows on its messages. Who reported is
+  never shown. Staff are never labelled, and mods can clear an unfair label (profile → ⋯).
+- **The Discord bridge** never lets anyone ping @everyone or roles, names can't pretend to be Discord, and the
+  bot only needs to read one channel. Discord pictures are only loaded from Discord's own image server.
 - **Blocking** hides two people from each other completely. **Five reports** hide a post until you review it
   (Supabase → Table Editor → `posts`, set `hidden` back to false, or delete it).
 - **Uploads** only into your own folder, max 50 MB, only image/video types (no HTML/SVG/scripts); photos are

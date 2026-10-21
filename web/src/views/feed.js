@@ -1,9 +1,24 @@
 import { h, icon, segmented, emptyState, toast, errorText, clear } from '../ui.js';
+import { openSearch } from './search.js';
 import { app } from '../state.js';
 import { renderSlide } from './postcard.js';
 
 const PAGE = 6;
 let lastScope = 'all';
+let lastCategory = 'all';
+
+// Categories are hashtags, so older posts with the tag show up too. The New post page offers the same ones.
+export const CATEGORIES = [
+    ['all', 'All', 'sparkles'],
+    ['skit', 'Skits', 'video'],
+    ['dance', 'Dances', 'music'],
+    ['vrchat', 'VRChat', 'vrchat'],
+    ['art', 'Art', 'palette'],
+    ['fursuit', 'Fursuits', 'paw'],
+    ['meme', 'Memes', 'sparkles'],
+    ['music', 'Music', 'volume'],
+    ['gaming', 'Gaming', 'gamepad']
+];
 
 /**
  * A vertical, snap-scrolling list of full-height posts. Shared by the home feed and tag pages.
@@ -101,6 +116,7 @@ export function slideList(container, load, { empty } = {}) {
 
 export function renderFeed(view) {
     let scope = lastScope;
+    let category = lastCategory;
     let current = null;
     const body = h('div', { class: 'feed-body' });
     const head = h('header', { class: 'feed-head' });
@@ -120,13 +136,39 @@ export function renderFeed(view) {
                 },
                 'Feed'
             ),
-            h('div', { class: 'head-actions' }, h('a', { class: 'icon-btn glass', href: '#/explore', 'aria-label': 'Search' }, icon('search')))
+            h('div', { class: 'head-actions' }, h('button', { class: 'icon-btn glass', 'aria-label': 'Search', onclick: () => openSearch() }, icon('search'))),
+            h(
+                'div',
+                { class: 'cat-row', role: 'tablist', 'aria-label': 'Categories' },
+                CATEGORIES.map(([v, label, ic]) =>
+                    h(
+                        'button',
+                        {
+                            class: 'cat-chip' + (category === v ? ' on' : ''),
+                            role: 'tab',
+                            'aria-selected': String(category === v),
+                            onclick: (e) => {
+                                if (category === v) return;
+                                category = lastCategory = v;
+                                const x = e.currentTarget.offsetLeft;
+                                draw();
+                                head.querySelector('.cat-row').scrollLeft = Math.max(0, x - 80);
+                            }
+                        },
+                        icon(ic),
+                        label
+                    )
+                )
+            )
         );
         if (current) current.destroy();
         clear(body);
-        current = slideList(body, (before) => app.backend.feed({ scope, before, limit: PAGE }), {
+        const tag = category === 'all' ? null : category;
+        current = slideList(body, (before) => app.backend.feed({ scope, before, limit: PAGE, tag }), {
             empty: () =>
-                scope === 'following'
+                tag
+                    ? emptyState('hash', `No #${tag} posts yet`, 'Add the tag to a post and it shows up here.', h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))
+                    : scope === 'following'
                     ? emptyState('user', 'Your Following feed is empty', 'Follow some furs and their posts land here.', h('a', { class: 'btn primary', href: '#/explore', text: 'Find people' }))
                     : emptyState('paw', 'No posts yet', 'Be the very first to post something!', h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))
         });

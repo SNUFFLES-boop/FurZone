@@ -4,7 +4,7 @@ import { mediaKind, prepareImage, checkVideo } from '../format.js';
 import { extractTags } from '../backend/shape.js';
 import { restrictionText } from '../staff.js';
 
-const QUICK_TAGS = ['art', 'fursuit', 'vrchat', 'sketch', 'commission', 'ych', 'refsheet', 'meme', 'con', 'avatar'];
+const QUICK_TAGS = ['skit', 'dance', 'vrchat', 'art', 'fursuit', 'meme', 'music', 'gaming', 'sketch', 'commission', 'ych', 'refsheet', 'con', 'avatar'];
 
 export function renderCreate(view, ctx) {
     let file = null;

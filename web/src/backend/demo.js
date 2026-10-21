@@ -14,6 +14,13 @@ const SEED_USERS = [
     ['pastelpaws', 'Pastel', 'Cat', 'she/they', 'Making the world softer, one doodle at a time', []]
 ];
 
+// Demo only: what seeded accounts say back in messages and the Lounge.
+const DEMO_REPLIES = {
+    mochibun: ['hii!! 🐰', 'omg yes', 'that sounds so fun', 'see you in VRChat later?'],
+    blitzwolf: ['awoo! 🐺', 'nice one', 'haha for real']
+};
+const LOUNGE_REPLIES = ['haha same', 'welcome to the lounge! 🐾', 'anyone in VRChat right now?', 'love that', 'brb getting snacks'];
+
 const SEED_POSTS = [
     ['neonproto', 'New visor faces just dropped. Who wants to see the angry one? #protogen #vrchat #avatar', '', 2],
     ['embertail', 'First time out in the new suit at the con today!! Everyone was so nice 🦊 #fursuit #con', 'Suit by @mochibun', 4],
@@ -44,6 +51,16 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const staff = new Map(); // user id -> owner | admin | mod | staff
     const restrictions = new Map(); // user id -> { banned, no_posting, …, reason, until }
     const staffLog = [];
+    const followRequests = new Map(); // `${requester}:${target}` -> created_at
+    const userReports = new Map(); // `${reporter}:${target}` -> reason
+    const flagClears = new Map(); // user id -> cleared_at
+    const threads = new Map(); // `${owner}:${other}` -> { state, last_message_at, last_body, last_from_me, unread, cleared_at }
+    const dms = []; // { id, sender_id, recipient_id, body, created_at, read_at }
+    const chat = []; // Lounge messages
+    let chatSeq = 0;
+    const dmListeners = new Set();
+    const loungeListeners = new Set();
+    const news = [];
     const blobs = new Map();
     const vrcCodes = new Map();
     const listeners = new Set();
@@ -52,11 +69,34 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const mediaUrl = (path) => blobs.get(path) || '';
     const iso = (t) => new Date(t).toISOString();
     const providersOf = (uid) => connections.filter((c) => c.user_id === uid).map((c) => c.provider).sort();
-    const P = (row) => (row ? normalizeProfile({ ...row, connections: providersOf(row.id), role: staff.get(row.id) || null }, mediaUrl) : null);
+    const P = (row) =>
+        row ? normalizeProfile({ ...row, connections: providersOf(row.id), role: staff.get(row.id) || null, flag: flagOf(row.id) }, mediaUrl) : null;
     const RANKS = { owner: 4, admin: 3, mod: 2, staff: 1 };
     const rank = (uid) => RANKS[staff.get(uid)] || 0;
     const limitsOf = (uid) => normalizeRestriction(restrictions.get(uid));
     const isBanned = (uid) => !!(limitsOf(uid) && limitsOf(uid).banned);
+    /** Same rule as the database: 3+ different people reported them (or their posts) since staff last cleared it. */
+    function flagOf(uid) {
+        if (rank(uid)) return null;
+        const since = flagClears.get(uid) || '';
+        const votes = new Map(); // reporter -> reason
+        for (const [k, r] of userReports) {
+            const [reporter, target] = k.split(':');
+            if (target === uid && r.at > since) votes.set(reporter, r.reason);
+        }
+        for (const [k, r] of reports) {
+            const [reporter, postId] = k.split(':');
+            const post = posts.find((x) => x.id === postId);
+            if (post && post.user_id === uid && r.at > since && !votes.has(reporter)) votes.set(reporter, /spam|scam/i.test(r.reason) ? 'spam' : /harass|hate/i.test(r.reason) ? 'bad' : 'nuisance');
+        }
+        if (votes.size < 3) return null;
+        const counts = new Map();
+        for (const reason of votes.values()) counts.set(reason, (counts.get(reason) || 0) + 1);
+        const order = ['scam', 'bad', 'spam', 'nuisance'];
+        return [...counts].sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]))[0][0];
+    }
+    const canSeePostsOf = (viewer, owner) =>
+        viewer === owner || !profiles.get(owner) || !profiles.get(owner).is_private || follows.has(`${viewer}:${owner}`);
     const blocked = (a, b) => blocks.has(`${a}:${b}`) || blocks.has(`${b}:${a}`);
     const delay = (v) => new Promise((r) => setTimeout(() => r(v), 40));
 
@@ -71,6 +111,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             avatar_path: null,
             banner_path: null,
             ref_path: null,
+            is_private: false,
+            dm_policy: 'everyone',
             followers_count: 0,
             following_count: 0,
             posts_count: 0,
@@ -173,6 +215,24 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     // Some views and comment hearts, so Explore and comments have something to sort by.
     posts.forEach((p, i) => (p.views_count = 12 + ((i * 37) % 90) + p.boops_count * 3));
     comments[0].likes = 3;
+    // A private account, and an account several people reported as a scam (for the labels).
+    const otter = addProfile('shyotter', 'Shy Otter', 'Otter', 'she/her', 'Private account, ask nicely 🦦');
+    otter.is_private = true;
+    addPost(otter.id, { caption: 'Only my followers can see this one #otter' }, now() - 5 * HOUR);
+    const vbux = addProfile('freevbux', 'FREE VRC+ 💸', '', '', 'click my link!!!');
+    for (const u of ['embertail', 'blitzwolf', 'mochibun']) userReports.set(`${seeded.get(u)}:${vbux.id}`, { reason: 'scam', at: iso(now() - HOUR) });
+    // The Lounge, with a couple of messages "from Discord".
+    const say = (user_id, body, minutesAgo, discord) =>
+        chat.push({ id: ++chatSeq, source: discord ? 'discord' : 'furzone', user_id, body, created_at: iso(now() - minutesAgo * 60000), discord_author: discord || null, discord_avatar: null });
+    say(null, 'anyone going to the Black Cat tonight? 🐾', 42, 'Rexy');
+    say(seeded.get('blitzwolf'), 'DJ set starts at 9! come hang', 39);
+    say(null, 'omw!! saving a spot by the bar', 35, 'Kiwi');
+    say(seeded.get('mochibun'), 'YCH slots still open btw 💕', 12);
+    // Sample news (the real app reads VRChat's official Steam announcements).
+    news.push(
+        { id: 'news1', source: 'furzone', title: 'Welcome to FurZone!', body: 'Be kind, credit artists, and have fun. The Lounge chat is linked with our Discord server.', url: null, published_at: iso(now() - 3 * HOUR) },
+        { id: 'news2', source: 'vrchat', title: 'VRChat update (sample)', body: 'This is where VRChat\'s official update notes appear, with a link to the full post.', url: 'https://store.steampowered.com/news/app/438100', published_at: iso(now() - 30 * HOUR) }
+    );
     notifications.length = 0; // seed activity isn't news to anyone
 
     // ---- helpers ----
@@ -184,7 +244,25 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         for (const cb of listeners) cb(event, session ? { ...session } : null);
     }
     function canSee(p) {
-        return p.user_id === session.userId || rank(session.userId) >= 1 || (!p.hidden && !blocked(session.userId, p.user_id) && !isBanned(p.user_id));
+        return (
+            p.user_id === session.userId ||
+            rank(session.userId) >= 1 ||
+            (!p.hidden && !blocked(session.userId, p.user_id) && !isBanned(p.user_id) && canSeePostsOf(session.userId, p.user_id))
+        );
+    }
+    /** Writes a direct message and updates both people's conversation lists, like send_dm() does. */
+    function deliver(from, to, body, at = now()) {
+        const msg = { id: id('dm'), sender_id: from, recipient_id: to, body, created_at: iso(at), read_at: null };
+        dms.push(msg);
+        const mine = threads.get(`${from}:${to}`) || {};
+        threads.set(`${from}:${to}`, { ...mine, state: 'open', last_message_at: msg.created_at, last_body: body.slice(0, 140), last_from_me: true, unread: 0 });
+        const theirs = threads.get(`${to}:${from}`);
+        let state;
+        if (theirs && (theirs.state === 'open' || theirs.state === 'archived')) state = theirs.state;
+        else if (follows.has(`${to}:${from}`) || dms.some((m) => m.sender_id === to && m.recipient_id === from) || rank(from)) state = 'open';
+        else state = 'request';
+        threads.set(`${to}:${from}`, { ...(theirs || {}), state, last_message_at: msg.created_at, last_body: body.slice(0, 140), last_from_me: false, unread: ((theirs && theirs.unread) || 0) + 1 });
+        return msg;
     }
     /** Same messages as the database's restriction checks. */
     function checkLimits(uid, what) {
@@ -241,6 +319,9 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         // New accounts follow two people so the Following feed isn't empty.
         doFollow(r.id, seeded.get('embertail'));
         doFollow(r.id, seeded.get('neonproto'));
+        // A friendly message and a spammy message request, so the inbox has something to show.
+        deliver(seeded.get('mochibun'), r.id, 'Hii! Welcome to FurZone 💕 love your vibe', now() - 20 * 60000);
+        deliver(vbux.id, r.id, 'FREE VRChat+ for everyone!! just log in at my link 💸💸', now() - 8 * 60000);
         return r;
     }
 
@@ -531,6 +612,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         },
         async follow(userId) {
             checkLimits(me(), 'any');
+            if (profiles.get(userId) && profiles.get(userId).is_private && !follows.has(`${me()}:${userId}`)) throw new Error('That account is private: send a follow request.');
             if (!doFollow(me(), userId) && blocked(me(), userId)) throw new Error("You can't follow them.");
         },
         async unfollow(userId) {
@@ -730,6 +812,234 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         async staffLog() {
             staffNeed(3);
             return staffLog.map((e) => ({ ...e, actor: P(profiles.get(e.actor_id)), target: P(profiles.get(e.target_user)) }));
+        },
+
+        // ---- privacy ----
+        async updatePrivacy(patch) {
+            const r = profiles.get(me());
+            if ('dm_policy' in patch && !['everyone', 'following', 'nobody'].includes(patch.dm_policy)) throw new Error('Pick everyone, following or nobody.');
+            const wasPrivate = r.is_private;
+            if ('is_private' in patch) r.is_private = !!patch.is_private;
+            if ('dm_policy' in patch) r.dm_policy = patch.dm_policy;
+            if (wasPrivate && !r.is_private) {
+                for (const k of [...followRequests.keys()]) {
+                    const [from, to] = k.split(':');
+                    if (to === r.id) {
+                        doFollow(from, to);
+                        followRequests.delete(k);
+                    }
+                }
+            }
+            return this.me();
+        },
+        async followState(userId) {
+            const a = me();
+            return follows.has(`${a}:${userId}`) ? 'following' : followRequests.has(`${a}:${userId}`) ? 'requested' : 'none';
+        },
+        async requestFollow(userId) {
+            const a = me();
+            checkLimits(a, 'any');
+            if (blocked(a, userId)) throw new Error("You can't follow them.");
+            if (follows.has(`${a}:${userId}`)) return 'following';
+            if (!profiles.get(userId).is_private) {
+                doFollow(a, userId);
+                return 'following';
+            }
+            followRequests.set(`${a}:${userId}`, iso(now()));
+            return 'requested';
+        },
+        async cancelFollowRequest(userId) {
+            followRequests.delete(`${me()}:${userId}`);
+        },
+        async followRequests() {
+            const a = me();
+            return [...followRequests]
+                .filter(([k]) => k.endsWith(':' + a))
+                .map(([k, at]) => ({ created_at: at, user: P(profiles.get(k.split(':')[0])) }));
+        },
+        async followRequestCount() {
+            const a = me();
+            return [...followRequests.keys()].filter((k) => k.endsWith(':' + a)).length;
+        },
+        async answerFollowRequest(userId, accept) {
+            const a = me();
+            if (!followRequests.delete(`${userId}:${a}`)) throw new Error('That request is gone.');
+            if (accept) doFollow(userId, a);
+        },
+
+        // ---- direct messages ----
+        async threads(state = 'open') {
+            const a = me();
+            return delay(
+                [...threads]
+                    .filter(([k, t]) => k.startsWith(a + ':') && t.state === state)
+                    .map(([k, t]) => ({ other_id: k.split(':')[1], ...t, other: P(profiles.get(k.split(':')[1])) }))
+                    .filter((t) => t.other)
+                    .sort((x, y) => (x.last_message_at < y.last_message_at ? 1 : -1))
+            );
+        },
+        async thread(otherId) {
+            const t = threads.get(`${me()}:${otherId}`);
+            return t ? { state: t.state, unread: t.unread } : null;
+        },
+        async dmCounts() {
+            const a = me();
+            let unread = 0;
+            let requests = 0;
+            for (const [k, t] of threads) {
+                if (!k.startsWith(a + ':')) continue;
+                if (t.state === 'open' || t.state === 'archived') unread += t.unread;
+                if (t.state === 'request') requests++;
+            }
+            return { unread, requests };
+        },
+        async dmMessages(otherId, before = null) {
+            const a = me();
+            const cleared = (threads.get(`${a}:${otherId}`) || {}).cleared_at || '';
+            return delay(
+                dms
+                    .filter((m) => ((m.sender_id === a && m.recipient_id === otherId) || (m.sender_id === otherId && m.recipient_id === a)) && m.created_at > cleared && (!before || m.created_at < before))
+                    .sort((x, y) => (x.created_at < y.created_at ? 1 : -1))
+                    .slice(0, 50)
+                    .map((m) => ({ id: m.id, sender_id: m.sender_id, body: m.body, created_at: m.created_at, read_at: m.read_at }))
+            );
+        },
+        async sendDm(otherId, body) {
+            const a = me();
+            const text = String(body || '').trim();
+            const them = profiles.get(otherId);
+            if (!them || otherId === a) throw new Error("That account doesn't exist.");
+            if (!text || text.length > 2000) throw new Error('Messages are 1-2000 characters.');
+            if (blocked(a, otherId)) throw new Error("You can't message them.");
+            const r = limitsOf(a);
+            if (r && (r.banned || r.no_comments)) throw new Error('A moderator turned off messaging for your account.');
+            const theirs = threads.get(`${otherId}:${a}`);
+            const known = (theirs && (theirs.state === 'open' || theirs.state === 'archived')) || follows.has(`${otherId}:${a}`) || dms.some((m) => m.sender_id === otherId && m.recipient_id === a) || rank(a);
+            if (!known && (them.dm_policy === 'nobody' || them.dm_policy === 'following')) {
+                throw new Error(`@${them.username} isn't taking messages from people they don't follow.`);
+            }
+            const sent = deliver(a, otherId, text).id;
+            // Demo only: friendly seeded accounts write back, so the chat feels alive.
+            if (DEMO_REPLIES[them.username] && !blocked(a, otherId)) {
+                setTimeout(() => {
+                    if (!profiles.has(a) || blocked(a, otherId)) return;
+                    const msg = deliver(otherId, a, DEMO_REPLIES[them.username][dms.length % DEMO_REPLIES[them.username].length]);
+                    for (const fn of dmListeners) fn({ ...msg });
+                }, 1600);
+            }
+            return sent;
+        },
+        async dmMarkRead(otherId) {
+            const a = me();
+            for (const m of dms) if (m.sender_id === otherId && m.recipient_id === a && !m.read_at) m.read_at = iso(now());
+            const t = threads.get(`${a}:${otherId}`);
+            if (t) t.unread = 0;
+        },
+        async dmSetState(otherId, state) {
+            const t = threads.get(`${me()}:${otherId}`);
+            if (!t) throw new Error('That conversation is gone.');
+            if (!['open', 'archived', 'hidden'].includes(state)) throw new Error('Pick open, archived or hidden.');
+            t.state = state;
+            if (state === 'hidden') {
+                t.cleared_at = iso(now());
+                t.unread = 0;
+            }
+        },
+        subscribeDms(fn) {
+            dmListeners.add(fn);
+            return () => dmListeners.delete(fn);
+        },
+
+        // ---- reports about people ----
+        async reportUser(userId, reason) {
+            const a = me();
+            checkLimits(a, 'any');
+            if (!['spam', 'scam', 'nuisance', 'bad'].includes(reason)) throw new Error('Pick a reason.');
+            if (userId === a) throw new Error("You can't report yourself.");
+            if (!userReports.has(`${a}:${userId}`)) userReports.set(`${a}:${userId}`, { reason, at: iso(now()) });
+        },
+        async staffClearFlag(userId) {
+            const mine = staffNeed(2);
+            staffTarget(mine, userId);
+            flagClears.set(userId, iso(now()));
+            note('clear_flag', userId, null);
+        },
+
+        // ---- the Lounge ----
+        async loungeStatus() {
+            return { sending: true, reading: true };
+        },
+        async loungeMessages() {
+            const a = me();
+            return delay(
+                chat
+                    .filter((m) => !m.user_id || m.user_id === a || rank(a) >= 1 || (!blocked(a, m.user_id) && !isBanned(m.user_id)))
+                    .slice(-60)
+                    .map((m) => ({ ...m, user: m.user_id ? P(profiles.get(m.user_id)) : null }))
+            );
+        },
+        async loungeSend(body) {
+            const a = me();
+            const text = String(body || '').trim();
+            const r = limitsOf(a);
+            if (r && (r.banned || r.no_comments)) throw new Error('A moderator turned off chat for your account.');
+            if (!text || text.length > 1000) throw new Error('Messages are 1-1000 characters.');
+            const m = { id: ++chatSeq, source: 'furzone', user_id: a, body: text, created_at: iso(now()), discord_author: null, discord_avatar: null };
+            chat.push(m);
+            // Demo only: someone "on Discord" answers now and then.
+            if (chat.length % 2 === 0) {
+                setTimeout(() => {
+                    chat.push({ id: ++chatSeq, source: 'discord', user_id: null, body: LOUNGE_REPLIES[chat.length % LOUNGE_REPLIES.length], created_at: iso(now()), discord_author: 'Kiwi', discord_avatar: null });
+                    for (const fn of loungeListeners) fn();
+                }, 2200);
+            }
+            return m;
+        },
+        async loungeSync() {
+            return { added: 0 };
+        },
+        async loungeDelete(chatId) {
+            const a = me();
+            const i = chat.findIndex((m) => m.id === chatId);
+            if (i < 0) throw new Error('That message is gone.');
+            if (chat[i].user_id !== a && rank(a) < 2) throw new Error('You can only delete your own messages.');
+            chat.splice(i, 1);
+            for (const fn of loungeListeners) fn();
+        },
+        subscribeLounge(fn) {
+            loungeListeners.add(fn);
+            return () => loungeListeners.delete(fn);
+        },
+
+        // ---- news ----
+        async news() {
+            me();
+            return [...news].sort((x, y) => (x.published_at < y.published_at ? 1 : -1));
+        },
+        async refreshNews() {
+            return { added: 0 };
+        },
+        async postAnnouncement(title, body, url) {
+            staffNeed(3);
+            if (!String(title || '').trim()) throw new Error('Give it a title.');
+            if (url && !/^https:\/\//.test(url)) throw new Error('Links must start with https://');
+            news.push({ id: id('news'), source: 'furzone', title: title.trim(), body: String(body || '').trim(), url: url || null, published_at: iso(now()) });
+            note('announce', null, null, { title });
+        },
+
+        // ---- search ----
+        async searchPosts(q) {
+            me();
+            const term = String(q || '').trim().toLowerCase();
+            if (term.length < 2) return [];
+            const tag = term.replace(/^#/, '');
+            return delay(
+                posts
+                    .filter((p) => canSee(p) && !p.hidden && !isBanned(p.user_id) && (p.tags.includes(tag) || p.caption.toLowerCase().includes(term)))
+                    .sort((x, y) => y.boops_count - x.boops_count)
+                    .slice(0, 30)
+                    .map(row)
+            );
         },
 
         async unlink(provider) {
