@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Pawst</AssemblyName>
+    <RootNamespace>Pawst</RootNamespace>
+    <ApplicationIcon>Pawst.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- CI sets these: version 1.0.<VersionCode>, and which GitHub repo updates come from. -->
+    <VersionCode Condition="'$(VersionCode)' == ''">1</VersionCode>
+    <GitHubRepo Condition="'$(GitHubRepo)' == ''">SNUFFLES-boop/Pawst</GitHubRepo>
+    <Version>1.0.$(VersionCode)</Version>
+    <Company>SNUFFLES-boop</Company>
+    <Product>Pawst</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="VersionCode" Value="$(VersionCode)" />
+    <AssemblyMetadata Include="GitHubRepo" Value="$(GitHubRepo)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="test/**" />
+  </ItemGroup>
+</Project>
