@@ -2746,3 +2746,27 @@ select.select {
 .banned .btn {
     margin-top: 12px;
 }
+
+.staff-strip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 4px 0 12px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: rgba(251, 113, 133, 0.12);
+    color: #fda4af;
+    font-size: 14px;
+}
+
+.staff-strip > .icon {
+    flex: none;
+    width: 18px;
+    height: 18px;
+}
+
+.staff-strip .grow {
+    min-width: 0;
+    flex: 1 1 160px;
+}

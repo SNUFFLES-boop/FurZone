@@ -4,7 +4,7 @@ import { compactCount, hueOf, validUsername, prepareImage, mediaKind } from '../
 import { captionNode, badges } from './postcard.js';
 import { connectionsSection } from './connect.js';
 import { openExternal } from '../platform.js';
-import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
+import { roleBadge, myRank, outranks, staffTools, staffStrip } from '../staff.js';
 
 export function renderProfile(view, ctx, username) {
     const page = h('div', { class: 'page profile' }, spinner());
@@ -80,6 +80,7 @@ export function renderProfile(view, ctx, username) {
                 p.bio && captionNode(p.bio, 'bio'),
                 conns
             ),
+            !isMe && myRank() >= 1 && staffStrip(p, load),
             h(
                 'div',
                 { class: 'stats' },

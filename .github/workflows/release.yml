@@ -36,6 +36,15 @@ jobs:
       - run: npm ci
       - name: Database security tests
         run: node --test test/schema.test.js
+      - name: Server API checks (the app's real queries through PostgREST)
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -qc "alter user postgres password 'postgres'"
+          bash scripts/server-test.sh
       - name: VRChat verification and helper tests
         run: node --test test/vrchat.test.js test/format.test.js
       - name: Build the app (demo mode, for the click-through tests)

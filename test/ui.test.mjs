@@ -266,6 +266,7 @@ await test('staff: ranks show as badges, and the owner reviews reports, limits a
     await shot('16-staff-tools');
     await page.getByRole('button', { name: 'Apply' }).click();
     await toastSays('Limits saved');
+    await page.locator('.staff-strip', { hasText: 'Posting turned off' }).waitFor();
 
     await page.getByRole('button', { name: 'More' }).click();
     await page.getByRole('button', { name: 'Staff tools' }).click();
@@ -278,6 +279,12 @@ await test('staff: ranks show as badges, and the owner reviews reports, limits a
     await page.evaluate(() => (location.hash = '#/staff/team'));
     await page.locator('.person', { hasText: 'testfox' }).locator('.role-owner').waitFor();
     await page.locator('.person', { hasText: 'skysergal' }).locator('.role-mod').waitFor();
+    await page.evaluate(() => (location.hash = '#/staff/limited'));
+    const limited = page.locator('.report-card', { hasText: 'skysergal' });
+    await limited.getByText('Posting turned off').waitFor();
+    await limited.getByRole('button', { name: 'Lift limits' }).click();
+    await toastSays('has no limits now');
+    await text('Nobody is banned or limited');
     await page.evaluate(() => (location.hash = '#/staff/log'));
     await text('turned off posting for @skysergal');
     await text('gave @skysergal the rank Mod');

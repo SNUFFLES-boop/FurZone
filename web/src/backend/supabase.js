@@ -230,7 +230,7 @@ export function createSupabaseBackend(url, anonKey) {
             return rows.map((r) => shapePost({ ...r, role: roles.get(r.user_id) || null }));
         },
         async post(id) {
-            const row = await must(client.from('posts').select(`*, profiles!inner(${PROFILE_COLS})`).eq('id', id).maybeSingle());
+            const row = await must(client.from('posts').select(`*, profiles!posts_user_id_fkey!inner(${PROFILE_COLS})`).eq('id', id).maybeSingle());
             if (!row) return null;
             const me = await userId();
             const [booped, following, conns, role] = await Promise.all([
@@ -252,13 +252,14 @@ export function createSupabaseBackend(url, anonKey) {
         async userPosts(userIdArg, before = null) {
             let q = client
                 .from('posts')
-                .select(`*, profiles!inner(${PROFILE_COLS})`)
+                .select(`*, profiles!posts_user_id_fkey!inner(${PROFILE_COLS})`)
                 .eq('user_id', userIdArg)
                 .order('created_at', { ascending: false })
                 .limit(30);
             if (before) q = q.lt('created_at', before);
             const rows = await must(q);
-            return rows.map((r) => shapePost({ ...r, ...r.profiles, id: r.id }));
+            const role = await roleOf(userIdArg);
+            return rows.map((r) => shapePost({ ...r, ...r.profiles, id: r.id, role }));
         },
         async createPost({ caption, credit, file, mediaType }, onProgress) {
             const id = await userId();
@@ -301,12 +302,13 @@ export function createSupabaseBackend(url, anonKey) {
             const rows = await must(
                 client
                     .from('comments')
-                    .select(`id, body, created_at, user_id, profiles!inner(${PROFILE_COLS})`)
+                    .select(`id, body, created_at, user_id, profiles!comments_user_id_fkey!inner(${PROFILE_COLS})`)
                     .eq('post_id', postId)
                     .order('created_at', { ascending: true })
                     .limit(300)
             );
-            return rows.map((r) => ({ id: r.id, body: r.body, created_at: r.created_at, user: shapeProfile(r.profiles) }));
+            const roles = await rolesOf([...new Set(rows.map((r) => r.user_id))]);
+            return rows.map((r) => ({ id: r.id, body: r.body, created_at: r.created_at, user: shapeProfile({ ...r.profiles, role: roles.get(r.user_id) || null }) }));
         },
         async addComment(postId, body) {
             const row = await must(client.from('comments').insert({ post_id: postId, body }).select('id, body, created_at').single());
@@ -439,6 +441,19 @@ export function createSupabaseBackend(url, anonKey) {
                 reasons: r.reasons || [],
                 last_report: r.last_report
             }));
+        },
+        async staffLimited() {
+            const rows = await must(
+                client
+                    .from('restrictions')
+                    .select(`*, user:profiles!restrictions_user_id_fkey(${PROFILE_COLS})`)
+                    .order('set_at', { ascending: false })
+                    .limit(200)
+            );
+            const roles = await rolesOf(rows.map((r) => r.user_id));
+            return rows
+                .map((r) => ({ restriction: normalizeRestriction(r), user: shapeProfile({ ...r.user, role: roles.get(r.user_id) || null }) }))
+                .filter((x) => x.restriction);
         },
         async staffTeam() {
             const rows = await must(

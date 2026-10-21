@@ -46,6 +46,43 @@ export function restrictionText(r) {
     return `${off.join(', ')} turned off ${untilText(r)}`;
 }
 
+const NO_LIMITS = { banned: false, no_posting: false, no_comments: false, no_uploads: false, no_profile_edits: false, days: null, reason: '' };
+
+/** Unban / lift every limit, with a confirmation toast. Returns true when it worked. */
+export async function liftAll(p) {
+    try {
+        await app.backend.staffRestrict(p.id, NO_LIMITS);
+        toast(`@${p.username} has no limits now`, 'success');
+        return true;
+    } catch (e) {
+        toast(errorText(e), 'error');
+        return false;
+    }
+}
+
+/** For staff on someone's profile: shows a ban or limits, with Unban and Staff tools right there. */
+export function staffStrip(p, reload) {
+    const strip = h('div', { class: 'staff-strip', hidden: true });
+    app.backend
+        .staffRestriction(p.id)
+        .then((r) => {
+            r = activeRestriction(r);
+            if (!r) return;
+            const canEdit = myRank() >= 2 && outranks(p.role, p.id);
+            const lift = canEdit && h('button', { class: 'chip-btn ok', text: r.banned ? 'Unban' : 'Lift limits' });
+            if (lift) lift.onclick = () => withBusy(lift, async () => (await liftAll(p)) && reload && reload());
+            strip.replaceChildren(
+                icon('ban'),
+                h('span', { class: 'grow' }, h('strong', { text: restrictionText(r) }), r.reason ? h('span', { class: 'muted', text: ` · “${r.reason}”` }) : null),
+                lift,
+                canEdit && h('button', { class: 'chip-btn ghost', text: 'Edit', onclick: () => staffTools(p, reload) })
+            );
+            strip.hidden = false;
+        })
+        .catch(() => {});
+    return strip;
+}
+
 // ---------------------------------------------------------------- the banned screen
 
 export function renderBanned(root, me, signOut) {
@@ -192,6 +229,7 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
     let alive = true;
     const tabs = [
         ['reports', 'Reports'],
+        ['limited', 'Bans'],
         ['team', 'Team']
     ];
     if (myRank() >= 3) tabs.push(['log', 'Log']);
@@ -215,6 +253,7 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
     };
 
     if (tab === 'reports') fill(app.backend.staffReports(), reportCard, emptyState('check', 'All clear', 'No reported posts right now.'));
+    else if (tab === 'limited') fill(app.backend.staffLimited(), limitedRow, emptyState('check', 'Nobody is banned or limited', ''));
     else if (tab === 'team') fill(app.backend.staffTeam(), teamRow, emptyState('user', 'No team yet', ''));
     else fill(app.backend.staffLog(), logRow, emptyState('shield', 'Nothing logged yet', ''));
 
@@ -289,6 +328,34 @@ export function renderStaffPage(view, ctx, tab = 'reports') {
             )
         );
         return card;
+    }
+
+    function limitedRow(x) {
+        const r = x.restriction;
+        const row = h('div', { class: 'report-card' });
+        const canEdit = myRank() >= 2 && outranks(x.user.role, x.user.id);
+        const lift = canEdit && h('button', { class: 'chip-btn ok', text: r.banned ? 'Unban' : 'Lift limits' });
+        if (lift) {
+            lift.onclick = () =>
+                withBusy(lift, async () => {
+                    if (await liftAll(x.user)) {
+                        row.remove();
+                        if (!body.querySelector('.report-card')) body.replaceChildren(emptyState('check', 'Nobody is banned or limited', ''));
+                    }
+                });
+        }
+        row.append(
+            h(
+                'a',
+                { class: 'report-who', href: `#/u/${x.user.username}` },
+                avatar(x.user, 'sm', x.user.avatar_url),
+                h('strong', { text: x.user.display_name || x.user.username }),
+                h('span', { class: 'muted', text: '@' + x.user.username })
+            ),
+            h('p', { class: 'report-meta' }, icon('ban'), h('strong', { text: restrictionText(r) }), r.reason ? h('span', { text: ` · “${r.reason}”` }) : null),
+            canEdit && h('div', { class: 'report-actions' }, lift, h('button', { class: 'chip-btn ghost', text: 'Edit', onclick: () => staffTools(x.user, () => ctx.go('#/staff/limited')) }))
+        );
+        return row;
     }
 
     function teamRow(m) {

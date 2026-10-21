@@ -663,6 +663,12 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
                     }))
             );
         },
+        async staffLimited() {
+            staffNeed(1);
+            return [...restrictions.keys()]
+                .map((uid) => ({ restriction: limitsOf(uid), user: P(profiles.get(uid)) }))
+                .filter((x) => x.restriction && x.user);
+        },
         async staffTeam() {
             staffNeed(1);
             return [...staff]
