@@ -1,6 +1,6 @@
 // One post, shown full-height: the media (or a colourful card for text posts), who posted it, the caption and
 // the action rail. Used by the feed and the single-post page.
-import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field } from '../ui.js';
+import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump } from '../ui.js';
 import { captionParts, compactCount, timeAgo, hueOf } from '../format.js';
 import { app, savePref } from '../state.js';
 import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
@@ -40,12 +40,26 @@ export function nameLine(user) {
     );
 }
 
-function pawBurst(host, x, y) {
-    const burst = h('span', { class: 'paw-burst', style: { left: x + 'px', top: y + 'px' } }, icon('paw'));
-    for (let i = 0; i < 6; i++) burst.append(h('i', { style: { '--a': i * 60 + 'deg' } }));
+/** A big heart where you double-tapped, with little hearts flying out of it. */
+function heartBurst(host, x, y) {
+    const burst = h('span', { class: 'heart-burst', style: { left: x + 'px', top: y + 'px' } }, icon('heart'));
+    for (let i = 0; i < 8; i++) {
+        burst.append(h('i', { style: { '--a': i * 45 + Math.round(Math.random() * 20 - 10) + 'deg', '--d': 60 + Math.round(Math.random() * 40) + 'px' } }, icon('heart')));
+    }
     host.append(burst);
-    setTimeout(() => burst.remove(), 900);
+    setTimeout(() => burst.remove(), 1000);
 }
+
+/** Small hearts that float up from a button. */
+export function heartFloat(button, count = 4) {
+    for (let i = 0; i < count; i++) {
+        const heart = h('span', { class: 'heart-float', style: { '--x': Math.round(Math.random() * 40 - 20) + 'px', '--r': Math.round(Math.random() * 40 - 20) + 'deg', animationDelay: i * 70 + 'ms' } }, icon('heart'));
+        button.append(heart);
+        setTimeout(() => heart.remove(), 1100 + i * 70);
+    }
+}
+
+const seen = new Set();
 
 export function renderSlide(post, { onRemoved } = {}) {
     const isMine = post.user.id === app.me.id;
@@ -88,7 +102,7 @@ export function renderSlide(post, { onRemoved } = {}) {
 
     // ---- actions ----
     const boopCount = h('span', { class: 'rail-count', text: compactCount(post.boops) });
-    const boopBtn = h('button', { class: 'rail-btn boop' + (post.booped ? ' on' : ''), 'aria-pressed': String(post.booped), 'aria-label': 'Boop' }, icon('paw'), boopCount);
+    const boopBtn = h('button', { class: 'rail-btn boop' + (post.booped ? ' on' : ''), 'aria-pressed': String(post.booped), 'aria-label': 'Boop' }, icon('heart'), boopCount);
     let booping = false;
     async function setBoop(on) {
         if (booping || post.booped === on) return;
@@ -110,12 +124,16 @@ export function renderSlide(post, { onRemoved } = {}) {
     function sync() {
         boopBtn.classList.toggle('on', post.booped);
         boopBtn.setAttribute('aria-pressed', String(post.booped));
-        boopCount.textContent = compactCount(post.boops);
-        commentCount.textContent = compactCount(post.comments);
+        bump(boopCount, compactCount(post.boops));
+        bump(commentCount, compactCount(post.comments));
     }
     boopBtn.onclick = () => {
-        if (!post.booped) boopBtn.classList.add('pop');
-        setTimeout(() => boopBtn.classList.remove('pop'), 400);
+        if (!post.booped) {
+            boopBtn.classList.remove('pop');
+            void boopBtn.offsetWidth;
+            boopBtn.classList.add('pop');
+            heartFloat(boopBtn);
+        }
         setBoop(!post.booped);
     };
     const commentCount = h('span', { class: 'rail-count', text: compactCount(post.comments) });
@@ -158,7 +176,7 @@ export function renderSlide(post, { onRemoved } = {}) {
         ),
         post.media_type && post.caption && captionNode(post.caption),
         post.credit && h('p', { class: 'credit' }, icon('palette'), captionNode(post.credit, 'credit-text', 'span')),
-        h('span', { class: 'when', text: timeAgo(post.created_at) })
+        h('span', { class: 'when', text: timeAgo(post.created_at) + (post.views ? ` · ${compactCount(post.views)} view${post.views === 1 ? '' : 's'}` : '') })
     );
 
     slide.append(media, h('div', { class: 'slide-shade', 'aria-hidden': 'true' }), info, h('div', { class: 'rail' }, boopBtn, commentBtn, shareBtn, moreBtn));
@@ -184,7 +202,8 @@ export function renderSlide(post, { onRemoved } = {}) {
         if (nowT - lastTap < 300) {
             clearTimeout(tapTimer);
             const r = slide.getBoundingClientRect();
-            pawBurst(slide, e.clientX - r.left, e.clientY - r.top);
+            heartBurst(slide, e.clientX - r.left, e.clientY - r.top);
+            if (!post.booped) heartFloat(boopBtn);
             setBoop(true);
             lastTap = 0;
             return;
@@ -200,6 +219,12 @@ export function renderSlide(post, { onRemoved } = {}) {
     });
 
     slide.activate = () => {
+        slide.classList.add('active');
+        // Count a view once per post per app session (the server also counts each person only once).
+        if (!isMine && !seen.has(post.id)) {
+            seen.add(post.id);
+            app.backend.recordView && app.backend.recordView(post.id).catch(() => {});
+        }
         if (video) {
             video.muted = app.muted;
             video.play().catch(() => {});
@@ -207,6 +232,7 @@ export function renderSlide(post, { onRemoved } = {}) {
         }
     };
     slide.deactivate = () => {
+        slide.classList.remove('active');
         if (video) video.pause();
     };
     return slide;
@@ -354,51 +380,152 @@ function editPost(post, slide) {
     });
 }
 
+const COMMENT_SORTS = [
+    ['top', 'Top'],
+    ['new', 'Newest'],
+    ['old', 'Oldest']
+];
+let commentSort = 'top';
+
+/** Little labels next to a commenter's name: their rank, Creator, You, Friend / Following / Follows you. */
+function commentTags(c, post) {
+    const tags = [];
+    const u = c.user;
+    if (u.id === post.user.id) tags.push(['creator', 'Creator']);
+    if (u.id === app.me.id) tags.push(['you', 'You']);
+    else if (u.you_follow && u.follows_you) tags.push(['friend', 'Friend']);
+    else if (u.you_follow) tags.push(['following', 'Following']);
+    else if (u.follows_you) tags.push(['fan', 'Follows you']);
+    return [roleBadge(u.role), ...tags.map(([cls, text]) => h('span', { class: 'ctag ctag-' + cls, text }))];
+}
+
 export function openComments(post, onChange) {
     sheet(
         'Comments',
         (body, close) => {
+            const title = body.parentElement.querySelector('.sheet-head h2');
             const list = h('div', { class: 'comments' }, h('div', { class: 'spinner' }));
             const input = h('input', { type: 'text', maxlength: 500, placeholder: 'Say something nice…', 'aria-label': 'Comment' });
+            const counter = h('span', { class: 'comment-counter', text: '' });
             const send = h('button', { class: 'btn primary', type: 'submit', 'aria-label': 'Send' }, icon('chevron'));
-            const form = h('form', { class: 'comment-form' }, avatar(app.me, 'sm', app.me.avatar_url), input, send);
+            const form = h('form', { class: 'comment-form' }, avatar(app.me, 'sm', app.me.avatar_url), h('span', { class: 'comment-input' }, input, counter), send);
+            const sortBar = h('div', { class: 'comment-sort' });
+            let items = [];
 
-            function row(c) {
+            input.oninput = () => {
+                const n = input.value.length;
+                counter.textContent = n > 400 ? `${n}/500` : '';
+            };
+
+            function setTitle() {
+                title.replaceChildren('Comments', h('span', { class: 'count-pill', text: compactCount(items.length) }));
+            }
+
+            function sorted() {
+                const time = (c) => Date.parse(c.created_at);
+                const by = {
+                    top: (a, b) => b.likes - a.likes || time(a) - time(b),
+                    new: (a, b) => time(b) - time(a),
+                    old: (a, b) => time(a) - time(b)
+                }[commentSort];
+                return [...items].sort(by);
+            }
+
+            function draw() {
+                sortBar.replaceChildren(
+                    segmented(COMMENT_SORTS, commentSort, (v) => {
+                        commentSort = v;
+                        draw();
+                    }, 'Sort comments')
+                );
+                setTitle();
+                list.replaceChildren(
+                    ...(items.length ? sorted().map((c, i) => row(c, i)) : [h('div', { class: 'comments-empty' }, icon('comment'), h('p', { text: 'No comments yet. Be the first!' }))])
+                );
+            }
+
+            function row(c, i = 0) {
                 const own = c.user.id === app.me.id || post.user.id === app.me.id;
                 const canDelete = own || (myRank() >= 2 && outranks(c.user.role, c.user.id));
+                const likeCount = h('span', { text: c.likes ? compactCount(c.likes) : '' });
+                const like = h('button', { class: 'comment-like' + (c.liked ? ' on' : ''), 'aria-label': 'Like comment', 'aria-pressed': String(c.liked) }, icon('heart'), likeCount);
+                like.onclick = async () => {
+                    const on = !c.liked;
+                    c.liked = on;
+                    c.likes += on ? 1 : -1;
+                    like.classList.toggle('on', on);
+                    like.setAttribute('aria-pressed', String(on));
+                    bump(likeCount, c.likes ? compactCount(c.likes) : '');
+                    if (on) {
+                        like.classList.remove('pop');
+                        void like.offsetWidth;
+                        like.classList.add('pop');
+                        heartFloat(like, 2);
+                    }
+                    try {
+                        await (on ? app.backend.likeComment(c.id) : app.backend.unlikeComment(c.id));
+                    } catch (e) {
+                        c.liked = !on;
+                        c.likes += on ? -1 : 1;
+                        like.classList.toggle('on', !on);
+                        bump(likeCount, c.likes ? compactCount(c.likes) : '');
+                        toast(errorText(e), 'error');
+                    }
+                };
+                const reply = h('button', {
+                    class: 'comment-action',
+                    text: 'Reply',
+                    onclick: () => {
+                        const at = `@${c.user.username} `;
+                        if (!input.value.startsWith(at)) input.value = at + input.value;
+                        input.focus();
+                        input.oninput();
+                    }
+                });
+                const del =
+                    canDelete &&
+                    h('button', {
+                        class: 'comment-action danger',
+                        text: 'Delete',
+                        onclick: async () => {
+                            try {
+                                await (own ? app.backend.deleteComment(c.id) : app.backend.staffDeleteComment(c.id));
+                                items = items.filter((x) => x !== c);
+                                el.classList.add('leaving');
+                                setTimeout(draw, 220);
+                                post.comments = Math.max(0, post.comments - 1);
+                                onChange && onChange();
+                            } catch (e) {
+                                toast(errorText(e), 'error');
+                            }
+                        }
+                    });
                 const el = h(
                     'div',
-                    { class: 'comment' },
+                    { class: 'comment' + (c.user.id === post.user.id ? ' by-creator' : ''), style: { '--i': String(Math.min(i, 12)) } },
                     h('a', { href: `#/u/${c.user.username}`, onclick: () => close() }, avatar(c.user, 'sm', c.user.avatar_url)),
                     h(
                         'div',
                         { class: 'comment-body' },
-                        h('div', { class: 'comment-head' }, h('strong', { text: c.user.display_name || c.user.username }), h('span', { class: 'muted', text: timeAgo(c.created_at) })),
-                        captionNode(c.body, 'comment-text')
+                        h(
+                            'div',
+                            { class: 'comment-head' },
+                            h('a', { class: 'comment-name', href: `#/u/${c.user.username}`, onclick: () => close(), text: c.user.display_name || c.user.username }),
+                            commentTags(c, post)
+                        ),
+                        captionNode(c.body, 'comment-text'),
+                        h('div', { class: 'comment-meta' }, h('span', { class: 'muted', text: timeAgo(c.created_at) }), h('span', { class: 'muted', text: '@' + c.user.username }), reply, del)
                     ),
-                    canDelete &&
-                        h('button', {
-                            class: 'icon-btn sm',
-                            'aria-label': 'Delete comment',
-                            onclick: async () => {
-                                try {
-                                    await (own ? app.backend.deleteComment(c.id) : app.backend.staffDeleteComment(c.id));
-                                    el.remove();
-                                    post.comments = Math.max(0, post.comments - 1);
-                                    onChange && onChange();
-                                } catch (e) {
-                                    toast(errorText(e), 'error');
-                                }
-                            }
-                        }, icon('trash'))
+                    like
                 );
                 return el;
             }
 
             app.backend
                 .comments(post.id)
-                .then((items) => {
-                    list.replaceChildren(...(items.length ? items.map(row) : [h('p', { class: 'muted center pad', text: 'No comments yet. Be the first!' })]));
+                .then((rows) => {
+                    items = rows.map((c) => ({ likes: 0, liked: false, ...c }));
+                    draw();
                 })
                 .catch((e) => list.replaceChildren(h('p', { class: 'form-error', text: errorText(e) })));
 
@@ -409,18 +536,25 @@ export function openComments(post, onChange) {
                 withBusy(send, async () => {
                     try {
                         const c = await app.backend.addComment(post.id, text);
-                        if (list.querySelector('.center')) list.replaceChildren();
-                        list.append(row(c));
+                        items.push({ likes: 0, liked: false, ...c, user: { ...c.user, role: app.me.role } });
+                        if (commentSort === 'old') {
+                            draw();
+                            list.lastChild && list.lastChild.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                        } else {
+                            commentSort = 'new';
+                            draw();
+                            list.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
                         input.value = '';
+                        input.oninput();
                         post.comments++;
                         onChange && onChange();
-                        list.lastChild.scrollIntoView({ block: 'nearest' });
                     } catch (err) {
                         toast(errorText(err), 'error');
                     }
                 });
             };
-            body.append(list, form);
+            body.append(sortBar, list, form);
         },
         { tall: true }
     );

@@ -11,7 +11,7 @@ cleanup() {
         echo "---- PostgREST log ----"
         cat "$WORK/pgrst.log"
     fi
-    kill "${PGRST_PID:-0}" 2>/dev/null || true
+    if [ -n "${PGRST_PID:-}" ]; then kill "$PGRST_PID" 2>/dev/null || true; fi
     rm -rf "$WORK"
     exit "$status"
 }

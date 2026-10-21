@@ -60,6 +60,7 @@ export function normalizePost(row, mediaUrl) {
         media_type: row.media_type || null,
         boops: Number(row.boops_count) || 0,
         comments: Number(row.comments_count) || 0,
+        views: Number(row.views_count) || 0,
         created_at: row.created_at,
         booped: !!row.booped,
         following: !!row.following

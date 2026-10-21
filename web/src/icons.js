@@ -1,4 +1,8 @@
 // Line icons (24×24, drawn with the current text colour). Icons in FILLED are solid shapes.
+// Discord and VRChat use their official logos (from the simple-icons package, sourced from discord.com/branding
+// and hello.vrchat.com/press), only to show that an account is connected to those services.
+import { siDiscord, siVrchat } from 'simple-icons';
+
 const PATHS = {
     paw:
         'M12 21.2c-3.1 0-5.6-1.7-5.6-4.3 0-2.7 2.6-5.6 5.6-5.6s5.6 2.9 5.6 5.6c0 2.6-2.5 4.3-5.6 4.3zM3.9 10.6a2 2.2 0 1 0 4 0a2 2.2 0 1 0-4 0zM7.6 6a2.1 2.4 0 1 0 4.2 0a2.1 2.4 0 1 0-4.2 0zM12.2 6a2.1 2.4 0 1 0 4.2 0a2.1 2.4 0 1 0-4.2 0zM16.1 10.6a2 2.2 0 1 0 4 0a2 2.2 0 1 0-4 0z',
@@ -41,12 +45,15 @@ const PATHS = {
     sparkles: 'M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z',
     palette:
         'M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H15a2 2 0 0 0-1.4 3.4A1.3 1.3 0 0 1 12 21zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01M17 11h.01',
-    discord:
-        'M8.5 5.5a14 14 0 0 1 7 0l.7-1.2a15 15 0 0 1 3.6 1.2c2 3.2 2.6 6.6 2.3 10a14 14 0 0 1-4.4 2.3l-1-1.6M8.3 16.2l-1 1.6a14 14 0 0 1-4.4-2.3c-.3-3.4.3-6.8 2.3-10A15 15 0 0 1 8.8 4.3zM9 13a1.3 1.4 0 1 0 0-.01M15 13a1.3 1.4 0 1 0 0-.01M7.5 15.5c3 1.5 6 1.5 9 0',
-    vrchat: 'M3 8h18v7a2 2 0 0 1-2 2h-4l-3-3-3 3H5a2 2 0 0 1-2-2zM7.5 12.5a1.5 1.5 0 1 0 0-.01M16.5 12.5a1.5 1.5 0 1 0 0-.01'
+    discord: siDiscord.path,
+    vrchat: siVrchat.path,
+    flame: 'M12 22c-4 0-7-2.9-7-6.8 0-3.1 2-5.2 3.6-7 .5 1.9 1.6 3 2.9 3.4C11 7.8 12.3 4.6 15 2c.4 3.2 1.8 5.1 3.2 7 1.1 1.5 1.8 3.4 1.8 5.4C20 18.9 16.5 22 12 22z',
+    clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+    filter: 'M3 5h18M6 12h12M10 19h4',
+        heart: 'M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 4.5 6.6 4.5c2.2 0 3.7 1.2 5.4 3.2 1.7-2 3.2-3.2 5.4-3.2 3.6 0 5.7 3.7 4.2 7.2C19.5 16.4 12 21 12 21z'
 };
 
-const FILLED = new Set(['paw']);
+const FILLED = new Set(['paw', 'discord', 'vrchat', 'heart']);
 const NS = 'http://www.w3.org/2000/svg';
 
 export function icon(name, cls) {

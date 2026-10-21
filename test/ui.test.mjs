@@ -107,7 +107,7 @@ await test('boop with the button and by double-tapping', async () => {
     await page.waitForFunction((n) => Number(document.querySelector('.slide .boop .rail-count').textContent) === n, before);
     await slide.locator('.slide-media').dblclick({ position: { x: 40, y: 180 } });
     await page.waitForFunction((n) => Number(document.querySelector('.slide .boop .rail-count').textContent) === n, before + 1);
-    await page.locator('.paw-burst').first().waitFor({ state: 'attached' }).catch(() => {});
+    await page.locator('.heart-burst').first().waitFor({ state: 'attached' });
 });
 
 await test('comments: read, add, and tags in them are links', async () => {
@@ -115,10 +115,22 @@ await test('comments: read, add, and tags in them are links', async () => {
     await slide.scrollIntoViewIfNeeded();
     await slide.getByRole('button', { name: 'Comments' }).click();
     await text('You look AMAZING in it');
+    // Top comments first: the one with hearts.
+    assert.match(await page.locator('.comment').first().textContent(), /You look AMAZING/);
+    const top = page.locator('.comment', { hasText: 'You look AMAZING' });
+    await top.getByRole('button', { name: 'Like comment' }).click();
+    assert.equal(await top.getByRole('button', { name: 'Like comment' }).getAttribute('aria-pressed'), 'true');
+    await page.waitForFunction(() => document.querySelector('.comment-like.on span').textContent === '4');
     await page.getByLabel('Comment', { exact: true }).fill('So cute!! #fursuit');
     await page.getByRole('button', { name: 'Send' }).click();
-    await page.locator('.comment', { hasText: 'So cute!!' }).waitFor();
+    const mine = page.locator('.comment', { hasText: 'So cute!!' });
+    await mine.waitFor();
+    await mine.locator('.ctag-you').waitFor();
+    assert.match(await page.locator('.comment').first().textContent(), /So cute/, 'new comment shows first');
     assert.equal(await page.locator('.comment a.tag', { hasText: '#fursuit' }).count(), 1);
+    await page.getByRole('tab', { name: 'Oldest' }).click();
+    assert.match(await page.locator('.comment').first().textContent(), /You look AMAZING/);
+    await page.locator('.sheet-head .count-pill', { hasText: '3' }).waitFor();
     await shot('04-comments');
     await page.getByRole('button', { name: 'Close' }).click();
 });
@@ -164,9 +176,27 @@ await test('a picture post: uploads and shows uncropped', async () => {
 await test('explore: search by species, trending tags, tag pages', async () => {
     await page.locator('.tabbar .nav-explore').click();
     await page.locator('.tag-chip', { hasText: '#art' }).first().waitFor();
+    // Discover: trending by default, with ranks and stats; then other sorts and filters.
+    await page.locator('.discover .tile').first().waitFor();
+    await page.locator('.discover .tile-rank.rank-1').waitFor();
+    assert.ok((await page.locator('.discover .tile-stats').count()) > 3);
+    await page.getByRole('tab', { name: 'Most viewed' }).click();
+    await page.locator('.discover .tile').first().waitFor();
+    await page.getByRole('button', { name: 'Pictures' }).click();
+    await page.getByRole('button', { name: 'All time' }).click();
+    await page.locator('.discover .tile img').first().waitFor();
+    assert.equal(await page.locator('.discover .tile-text').count(), 0, 'only pictures');
+    await page.getByRole('button', { name: 'Text' }).click();
+    await page.locator('.discover .tile-text').first().waitFor();
+    await page.getByRole('tab', { name: 'Newest' }).click();
+    assert.equal(await page.getByRole('button', { name: 'This week' }).isVisible(), false, 'no time filter for Newest');
+    await page.getByRole('tab', { name: 'Trending' }).click();
+    await page.getByRole('button', { name: 'Everything' }).click();
+    await page.getByRole('button', { name: 'This week' }).click();
+    await shot('07-explore');
     await page.getByLabel('Search').fill('fox');
     await page.locator('.person', { hasText: 'Ember' }).waitFor();
-    await shot('07-explore');
+    await shot('07b-explore-search');
     await page.getByLabel('Search').fill('');
     await page.locator('.tag-chip', { hasText: '#fursuit' }).first().click();
     await page.locator('.tag-title', { hasText: '#fursuit' }).waitFor();

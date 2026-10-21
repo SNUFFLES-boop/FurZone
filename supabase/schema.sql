@@ -378,6 +378,11 @@ begin
     when 'reports' then
       perform enforce_rate_limit((select count(*)::int from reports
         where reporter_id = new.reporter_id and created_at > now() - interval '1 day'), 20, 'reports');
+    when 'comment_boops' then
+      perform enforce_rate_limit((select count(*)::int from comment_boops
+        where user_id = new.user_id and created_at > now() - interval '10 minutes'), 300, 'likes');
+    else
+      null;
   end case;
   return new;
 end $$;
@@ -417,6 +422,7 @@ begin
     new.boops_count := 0;
     new.comments_count := 0;
     new.reports_count := 0;
+    new.views_count := 0;
     new.hidden := false;
   end if;
   new.caption := btrim(coalesce(new.caption, ''));
@@ -769,6 +775,106 @@ grant execute on function public.delete_my_account() to authenticated;
 -- Internal helpers aren't callable from the app.
 revoke all on function public.enforce_rate_limit(int, int, text) from public, anon, authenticated;
 
+-- ---------------------------------------------------------------- comment likes, views and explore
+
+alter table public.comments add column if not exists boops_count int not null default 0;
+alter table public.posts add column if not exists views_count int not null default 0;
+
+-- Hearts on comments.
+create table if not exists public.comment_boops (
+  user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  comment_id uuid not null references public.comments (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, comment_id)
+);
+create index if not exists comment_boops_comment_idx on public.comment_boops (comment_id);
+
+-- Who has seen which post, so each person counts once. Only written by record_view().
+create table if not exists public.post_views (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  post_id uuid not null references public.posts (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, post_id)
+);
+create index if not exists post_views_post_idx on public.post_views (post_id);
+
+revoke all on public.comment_boops, public.post_views from anon, authenticated;
+grant select, delete on public.comment_boops to authenticated;
+grant insert (comment_id) on public.comment_boops to authenticated;
+alter table public.comment_boops enable row level security;
+alter table public.post_views enable row level security;
+
+drop policy if exists comment_boops_read on public.comment_boops;
+create policy comment_boops_read on public.comment_boops for select to authenticated using (true);
+drop policy if exists comment_boops_insert_own on public.comment_boops;
+create policy comment_boops_insert_own on public.comment_boops for insert to authenticated with check (
+  user_id = auth.uid()
+  and exists (select 1 from public.comments c join public.posts p on p.id = c.post_id
+               where c.id = comment_id and not public.is_blocked(auth.uid(), c.user_id)
+                 and not public.is_blocked(auth.uid(), p.user_id))
+);
+drop policy if exists comment_boops_delete_own on public.comment_boops;
+create policy comment_boops_delete_own on public.comment_boops for delete to authenticated using (user_id = auth.uid());
+
+create or replace function public.comment_boops_after_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    update comments set boops_count = boops_count + 1 where id = new.comment_id;
+  else
+    update comments set boops_count = greatest(boops_count - 1, 0) where id = old.comment_id;
+  end if;
+  return null;
+end $$;
+revoke all on function public.comment_boops_after_change() from public, anon, authenticated;
+create or replace trigger comment_boops_counts after insert or delete on public.comment_boops
+  for each row execute function public.comment_boops_after_change();
+create or replace trigger rate_limit before insert on public.comment_boops for each row execute function public.rate_limit();
+
+-- Counts a view once per person, never your own, only for posts you can see.
+create or replace function public.record_view(p_post uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not exists (
+    select 1 from posts p where p.id = p_post and p.user_id <> auth.uid() and not p.hidden
+       and not is_blocked(auth.uid(), p.user_id)) then
+    return;
+  end if;
+  insert into post_views (user_id, post_id) values (auth.uid(), p_post) on conflict do nothing;
+  if found then
+    update posts set views_count = views_count + 1 where id = p_post;
+  end if;
+end $$;
+revoke all on function public.record_view(uuid) from public, anon;
+grant execute on function public.record_view(uuid) to authenticated;
+
+-- Explore: sort by trending, popular, viewed or new; within a time range; pictures, videos or text.
+-- Trending weighs boops, comments and views, and fades as a post gets older.
+create or replace function public.explore(p_sort text default 'trending', p_range text default 'week',
+                                          p_type text default 'all', p_limit int default 30, p_offset int default 0)
+returns table (
+  id uuid, user_id uuid, username text, display_name text, avatar_path text, caption text, tags text[],
+  media_path text, media_type text, boops_count int, comments_count int, views_count int, created_at timestamptz
+)
+language sql stable security invoker set search_path = public as $$
+  select p.id, p.user_id, pr.username, pr.display_name, pr.avatar_path, p.caption, p.tags, p.media_path, p.media_type,
+         p.boops_count, p.comments_count, p.views_count, p.created_at
+    from posts p join profiles pr on pr.id = p.user_id
+   where not p.hidden and not public.is_banned(p.user_id)
+     and p.created_at > now() - case p_range when 'day' then interval '1 day' when 'week' then interval '7 days'
+                                             when 'month' then interval '30 days' else interval '100 years' end
+     and (p_type = 'all' or (p_type = 'text' and p.media_type is null) or p.media_type = p_type)
+   order by
+     case when p_sort = 'trending' then (p.boops_count * 3 + p.comments_count * 4 + p.views_count)::float8
+                                        / power(extract(epoch from now() - p.created_at) / 3600 + 2, 1.3) end desc nulls last,
+     case when p_sort = 'popular' then p.boops_count end desc nulls last,
+     case when p_sort = 'viewed' then p.views_count end desc nulls last,
+     p.created_at desc
+   limit least(greatest(p_limit, 1), 60) offset greatest(p_offset, 0)
+$$;
+revoke all on function public.explore(text, text, text, int, int) from public, anon;
+grant execute on function public.explore(text, text, text, int, int) to authenticated;
+
 -- ---------------------------------------------------------------- staff and moderation
 --
 -- Who can do what (you can only ever act on people ranked BELOW you, never on yourself):
@@ -832,6 +938,7 @@ create or replace trigger restrictions before update on public.profiles for each
 create or replace trigger restrictions before insert on public.boops for each row execute function public.enforce_restrictions();
 create or replace trigger restrictions before insert on public.follows for each row execute function public.enforce_restrictions();
 create or replace trigger restrictions before insert on public.reports for each row execute function public.enforce_restrictions();
+create or replace trigger restrictions before insert on public.comment_boops for each row execute function public.enforce_restrictions();
 
 -- The caller's rank, or an error if it's below what the action needs.
 create or replace function public.staff_require(min_rank int) returns int

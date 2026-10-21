@@ -411,3 +411,54 @@ test('staff tools: reports, hide, delete, and an admin-only log', async () => {
         await assert.rejects(as('chief', `select ${f}`), /permission denied/);
     }
 });
+
+// ---------------------------------------------------------------- comment likes, views, explore
+
+test('comment likes: counted by the database, only your own, blocked people stay out', async () => {
+    for (const n of ['liker', 'talker', 'blocker2']) if (!users[n]) await signUp(n);
+    const [p] = await as('talker', `insert into posts (caption) values ('likeable') returning id`);
+    const [c] = await as('talker', `insert into comments (post_id, body) values ($1, 'first!') returning id`, [p.id]);
+    await as('liker', 'insert into comment_boops (comment_id) values ($1)', [c.id]);
+    await assert.rejects(as('liker', 'insert into comment_boops (comment_id) values ($1)', [c.id]), /duplicate/);
+    await assert.rejects(as('liker', 'insert into comment_boops (user_id, comment_id) values ($1, $2)', [users.talker, c.id]), /permission denied/);
+    await assert.rejects(as('liker', 'update comments set boops_count = 99 where id = $1', [c.id]), /permission denied/);
+    assert.equal((await as('talker', 'select boops_count from comments where id = $1', [c.id]))[0].boops_count, 1);
+    await as('talker', 'insert into blocks (blocked_id) values ($1)', [users.blocker2]);
+    await assert.rejects(as('blocker2', 'insert into comment_boops (comment_id) values ($1)', [c.id]), /row-level security/);
+    await as('liker', 'delete from comment_boops where comment_id = $1', [c.id]);
+    assert.equal((await as('talker', 'select boops_count from comments where id = $1', [c.id]))[0].boops_count, 0);
+});
+
+test('views: once per person, never your own, and only the database can count them', async () => {
+    for (const n of ['viewer1', 'viewer2', 'poster']) if (!users[n]) await signUp(n);
+    const [p] = await as('poster', `insert into posts (caption) values ('look at me') returning id, views_count`);
+    assert.equal(p.views_count, 0);
+    await as('poster', 'select record_view($1)', [p.id]);
+    await as('viewer1', 'select record_view($1)', [p.id]);
+    await as('viewer1', 'select record_view($1)', [p.id]);
+    await as('viewer2', 'select record_view($1)', [p.id]);
+    assert.equal((await admin('select views_count from posts where id = $1', [p.id]))[0].views_count, 2);
+    await assert.rejects(as('viewer1', 'select * from post_views'), /permission denied/);
+    await assert.rejects(as('poster', 'update posts set views_count = 1000 where id = $1', [p.id]), /permission denied/);
+    await assert.rejects(as(null, 'select record_view($1)', [p.id]), /permission denied/);
+});
+
+test('explore: trending, popular, most viewed and newest, with time and type filters', async () => {
+    for (const n of ['ex1', 'ex2', 'ex3']) if (!users[n]) await signUp(n);
+    const [old] = await as('ex1', `insert into posts (caption) values ('explore old but loved') returning id`);
+    await admin(`update posts set created_at = now() - interval '20 days', boops_count = 50 where id = $1`, [old.id]);
+    const [pic] = await as('ex2', `insert into posts (caption, media_path, media_type) values ('explore pic', $1, 'image') returning id`, [`${users.ex2}/a.jpg`]);
+    await admin('update posts set views_count = 40, boops_count = 5 where id = $1', [pic.id]);
+    const [fresh] = await as('ex3', `insert into posts (caption) values ('explore brand new') returning id`);
+    const ids = new Set([old.id, pic.id, fresh.id]);
+    const run = async (sort, range, type = 'all') =>
+        (await as('ex1', 'select id from explore($1, $2, $3, 60, 0)', [sort, range, type])).map((r) => r.id).filter((id) => ids.has(id));
+    assert.deepEqual(await run('popular', 'all'), [old.id, pic.id, fresh.id]);
+    assert.deepEqual(await run('popular', 'week'), [pic.id, fresh.id], 'week leaves out the 20-day-old post');
+    assert.equal((await run('viewed', 'month'))[0], pic.id);
+    assert.equal((await run('newest', 'all'))[0], fresh.id);
+    assert.equal((await run('trending', 'week'))[0], pic.id);
+    assert.deepEqual(await run('newest', 'all', 'image'), [pic.id]);
+    assert.ok(!(await run('newest', 'all', 'text')).includes(pic.id));
+    await assert.rejects(as(null, `select * from explore('trending', 'week', 'all', 10, 0)`), /permission denied/);
+});

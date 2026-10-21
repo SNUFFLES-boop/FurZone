@@ -38,6 +38,8 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
     const follows = new Set();
     const blocks = new Set(); // `${blocker}:${blocked}`
     const notifications = [];
+    const commentLikes = new Set(); // `${user}:${comment}`
+    const views = new Set(); // `${user}:${post}`
     const reports = new Map(); // `${reporter}:${post}` -> { reason, at }
     const staff = new Map(); // user id -> owner | admin | mod | staff
     const restrictions = new Map(); // user id -> { banned, no_posting, …, reason, until }
@@ -96,6 +98,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             boops_count: 0,
             comments_count: 0,
             reports_count: 0,
+            views_count: 0,
             hidden: false,
             created_at: iso(at)
         };
@@ -154,7 +157,7 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         ['mochibun', 'You look AMAZING in it!! 😭💕'],
         ['blitzwolf', 'Top tier floof']
     ]) {
-        comments.push({ id: id('cmt'), post_id: suitPost.id, user_id: seeded.get(u), body, created_at: iso(now() - HOUR) });
+        comments.push({ id: id('cmt'), post_id: suitPost.id, user_id: seeded.get(u), body, created_at: iso(now() - HOUR), likes: 0 });
         suitPost.comments_count++;
     }
     staff.set(seeded.get('blitzwolf'), 'mod');
@@ -167,6 +170,9 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
         reports.set(`${seeded.get(u)}:${cheese.id}`, { reason, at: iso(now() - 2 * HOUR) });
         cheese.reports_count++;
     }
+    // Some views and comment hearts, so Explore and comments have something to sort by.
+    posts.forEach((p, i) => (p.views_count = 12 + ((i * 37) % 90) + p.boops_count * 3));
+    comments[0].likes = 3;
     notifications.length = 0; // seed activity isn't news to anyone
 
     // ---- helpers ----
@@ -445,7 +451,14 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             return delay(
                 comments
                     .filter((c) => c.post_id === postId && (c.user_id === uid || rank(uid) >= 1 || (!blocked(uid, c.user_id) && !isBanned(c.user_id))))
-                    .map((c) => ({ id: c.id, body: c.body, created_at: c.created_at, user: P(profiles.get(c.user_id)) }))
+                    .map((c) => ({
+                        id: c.id,
+                        body: c.body,
+                        created_at: c.created_at,
+                        likes: c.likes || 0,
+                        liked: commentLikes.has(`${uid}:${c.id}`),
+                        user: { ...P(profiles.get(c.user_id)), you_follow: follows.has(`${uid}:${c.user_id}`), follows_you: follows.has(`${c.user_id}:${uid}`) }
+                    }))
             );
         },
         async addComment(postId, body) {
@@ -455,11 +468,49 @@ export function createDemoBackend({ now = () => Date.now() } = {}) {
             checkLimits(uid, 'comment');
             const p = posts.find((x) => x.id === postId && canSee(x));
             if (!p) throw new Error("You can't comment on that.");
-            const c = { id: id('cmt'), post_id: postId, user_id: uid, body: text, created_at: iso(now()) };
+            const c = { id: id('cmt'), post_id: postId, user_id: uid, body: text, created_at: iso(now()), likes: 0 };
             comments.push(c);
             p.comments_count++;
             notify(p.user_id, uid, 'comment', p.id);
-            return { id: c.id, body: c.body, created_at: c.created_at, user: P(profiles.get(uid)) };
+            return { id: c.id, body: c.body, created_at: c.created_at, likes: 0, liked: false, user: P(profiles.get(uid)) };
+        },
+        async likeComment(commentId) {
+            const uid = me();
+            checkLimits(uid, 'any');
+            const c = comments.find((x) => x.id === commentId);
+            if (!c || blocked(uid, c.user_id)) throw new Error("You can't like that.");
+            if (!commentLikes.has(`${uid}:${commentId}`)) {
+                commentLikes.add(`${uid}:${commentId}`);
+                c.likes = (c.likes || 0) + 1;
+            }
+        },
+        async unlikeComment(commentId) {
+            const c = comments.find((x) => x.id === commentId);
+            if (c && commentLikes.delete(`${me()}:${commentId}`)) c.likes--;
+        },
+        async recordView(postId) {
+            const uid = me();
+            const p = posts.find((x) => x.id === postId);
+            if (!p || p.user_id === uid || views.has(`${uid}:${postId}`)) return;
+            views.add(`${uid}:${postId}`);
+            p.views_count++;
+        },
+        async explore({ sort = 'trending', range = 'week', type = 'all', offset = 0, limit = 30 } = {}) {
+            me();
+            const span = { day: 24, week: 168, month: 720 }[range] || Infinity;
+            const age = (p) => (now() - Date.parse(p.created_at)) / HOUR;
+            const score = (p) => (p.boops_count * 3 + p.comments_count * 4 + p.views_count) / Math.pow(age(p) + 2, 1.3);
+            const by = {
+                trending: (a, b) => score(b) - score(a),
+                popular: (a, b) => b.boops_count - a.boops_count,
+                viewed: (a, b) => b.views_count - a.views_count,
+                newest: () => 0
+            }[sort] || (() => 0);
+            const rows = posts
+                .filter((p) => !p.hidden && !isBanned(p.user_id) && canSee(p) && age(p) < span)
+                .filter((p) => type === 'all' || (type === 'text' ? !p.media_type : p.media_type === type))
+                .sort((a, b) => by(a, b) || Date.parse(b.created_at) - Date.parse(a.created_at));
+            return delay(rows.slice(offset, offset + limit).map(row));
         },
         async deleteComment(commentId) {
             const i = comments.findIndex((c) => c.id === commentId);

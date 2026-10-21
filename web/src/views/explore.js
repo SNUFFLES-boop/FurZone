@@ -1,4 +1,5 @@
 import { h, icon, avatar, emptyState, toast, errorText, withBusy, spinner } from '../ui.js';
+import { compactCount, hueOf } from '../format.js';
 import { app } from '../state.js';
 import { nameLine } from './postcard.js';
 import { slideList } from './feed.js';
@@ -37,6 +38,48 @@ export function personRow(p, { onOpen } = {}) {
     return row;
 }
 
+const SORTS = [
+    ['trending', 'Trending', 'flame'],
+    ['popular', 'Popular', 'heart'],
+    ['viewed', 'Most viewed', 'eye'],
+    ['newest', 'Newest', 'clock']
+];
+const RANGES = [
+    ['day', 'Today'],
+    ['week', 'This week'],
+    ['month', 'This month'],
+    ['all', 'All time']
+];
+const TYPES = [
+    ['all', 'Everything', 'sparkles'],
+    ['image', 'Pictures', 'image'],
+    ['video', 'Videos', 'video'],
+    ['text', 'Text', 'comment']
+];
+const PAGE = 24;
+// Remembered while the app is open, so going back to Explore keeps your choice.
+const picks = { sort: 'trending', range: 'week', type: 'all' };
+
+/** A square-ish preview of a post with its hearts and views; the top three get a rank. */
+export function postTile(post, i, { rank = false } = {}) {
+    return h(
+        'a',
+        { class: 'tile', href: `#/p/${post.id}`, 'aria-label': post.caption.slice(0, 80) || 'Post', style: { '--i': String(Math.min(i, 14)) } },
+        post.media_type === 'image'
+            ? h('img', { src: post.media_url, alt: '', loading: 'lazy' })
+            : post.media_type === 'video'
+              ? [h('video', { src: post.media_url + '#t=0.1', muted: true, preload: 'metadata', playsinline: true }), h('span', { class: 'tile-badge' }, icon('video'))]
+              : h('span', { class: 'tile-text', style: { '--h': String(hueOf(post.user.username + post.id)) }, text: post.caption.slice(0, 90) }),
+        rank && i < 3 && h('span', { class: 'tile-rank rank-' + (i + 1), text: '#' + (i + 1) }),
+        h(
+            'span',
+            { class: 'tile-stats' },
+            h('span', null, icon('heart'), compactCount(post.boops)),
+            post.views ? h('span', null, icon('eye'), compactCount(post.views)) : null
+        )
+    );
+}
+
 export function renderExplore(view, ctx, tag) {
     if (tag) return renderTag(view, tag);
 
@@ -49,8 +92,16 @@ export function renderExplore(view, ctx, tag) {
         spellcheck: 'false'
     });
     const results = h('div', { class: 'results' });
-    const trending = h('div', { class: 'tag-cloud' }, spinner());
+    const trending = h('div', { class: 'tag-row' }, spinner());
     const suggestions = h('div', { class: 'people' });
+    const sortRow = h('div', { class: 'pill-tabs', role: 'tablist', 'aria-label': 'Sort posts' });
+    const rangeRow = h('div', { class: 'filter-row', 'aria-label': 'Time' });
+    const typeRow = h('div', { class: 'filter-row', 'aria-label': 'Kind of post' });
+    const grid = h('div', { class: 'grid discover' });
+    const more = h('button', { class: 'btn ghost block load-more', text: 'Show more', hidden: true });
+    let alive = true;
+    let offset = 0;
+    let loadSeq = 0;
 
     let seq = 0;
     let timer = 0;
@@ -77,6 +128,68 @@ export function renderExplore(view, ctx, tag) {
         }, 300);
     };
 
+    function chip(list, key, row, withIcons) {
+        row.replaceChildren(
+            ...list.map(([v, label, ic]) =>
+                h(
+                    'button',
+                    {
+                        class: 'filter-chip' + (picks[key] === v ? ' on' : ''),
+                        role: key === 'sort' ? 'tab' : null,
+                        'aria-selected': key === 'sort' ? String(picks[key] === v) : null,
+                        'aria-pressed': key === 'sort' ? null : String(picks[key] === v),
+                        onclick: () => {
+                            if (picks[key] === v) return;
+                            picks[key] = v;
+                            drawControls();
+                            load(true);
+                        }
+                    },
+                    withIcons && ic ? icon(ic) : null,
+                    label
+                )
+            )
+        );
+    }
+
+    function drawControls() {
+        chip(SORTS, 'sort', sortRow, true);
+        chip(RANGES, 'range', rangeRow, false);
+        chip(TYPES, 'type', typeRow, true);
+        rangeRow.hidden = picks.sort === 'newest';
+    }
+
+    async function load(reset) {
+        const mine = ++loadSeq;
+        if (reset) {
+            offset = 0;
+            grid.replaceChildren(spinner());
+            more.hidden = true;
+        }
+        try {
+            const range = picks.sort === 'newest' ? 'all' : picks.range;
+            const posts = await app.backend.explore({ sort: picks.sort, range, type: picks.type, offset, limit: PAGE });
+            if (!alive || mine !== loadSeq) return;
+            if (reset) grid.replaceChildren();
+            const start = offset;
+            grid.append(...posts.map((p, i) => postTile(p, start + i, { rank: picks.sort !== 'newest' })));
+            offset += posts.length;
+            more.hidden = posts.length < PAGE;
+            if (!grid.children.length) {
+                grid.replaceChildren(
+                    emptyState(
+                        'sparkles',
+                        'Nothing here yet',
+                        picks.range === 'day' && picks.sort !== 'newest' ? 'Nothing posted today. Try "This week" or "All time".' : 'Try another filter, or be the first to post!'
+                    )
+                );
+            }
+        } catch (e) {
+            if (alive && mine === loadSeq) grid.replaceChildren(h('p', { class: 'form-error', text: errorText(e) }));
+        }
+    }
+    more.onclick = () => withBusy(more, () => load(false));
+
     view.append(
         h(
             'div',
@@ -84,12 +197,19 @@ export function renderExplore(view, ctx, tag) {
             h('h1', { class: 'page-title', text: 'Explore' }),
             h('label', { class: 'search-box' }, icon('search'), input),
             results,
-            h('h2', { class: 'section-title' }, icon('sparkles'), 'Trending tags'),
+            h('h2', { class: 'section-title' }, icon('hash'), 'Trending tags'),
             trending,
+            h('h2', { class: 'section-title' }, icon('sparkles'), 'Discover'),
+            sortRow,
+            h('div', { class: 'filters' }, typeRow, rangeRow),
+            grid,
+            more,
             h('h2', { class: 'section-title' }, icon('paw'), 'Furs to follow'),
             suggestions
         )
     );
+    drawControls();
+    load(true);
 
     app.backend
         .trendingTags()
@@ -108,19 +228,22 @@ export function renderExplore(view, ctx, tag) {
     app.backend
         .feed({ scope: 'all', limit: 30 })
         .then(async (posts) => {
-            const seen = new Set([app.me.id]);
+            const seenIds = new Set([app.me.id]);
             const people = [];
             for (const p of posts) {
-                if (seen.has(p.user.id) || p.following) continue;
-                seen.add(p.user.id);
+                if (seenIds.has(p.user.id) || p.following) continue;
+                seenIds.add(p.user.id);
                 people.push(p.user);
             }
             const full = (await Promise.all(people.slice(0, 6).map((u) => app.backend.profileByUsername(u.username)))).filter(Boolean);
+            if (!alive) return;
             suggestions.replaceChildren(
                 ...(full.length ? full.map((p) => personRow(p)) : [h('p', { class: 'muted', text: "You're following everyone who's posted. Nice!" })])
             );
         })
         .catch(() => suggestions.replaceChildren());
+
+    return () => (alive = false);
 }
 
 function renderTag(view, tag) {

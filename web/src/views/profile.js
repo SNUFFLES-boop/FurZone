@@ -130,7 +130,7 @@ export function renderProfile(view, ctx, username) {
                                       : post.media_type === 'video'
                                         ? [h('video', { src: post.media_url + '#t=0.1', muted: true, preload: 'metadata', playsinline: true }), h('span', { class: 'tile-badge' }, icon('video'))]
                                         : h('span', { class: 'tile-text', style: { '--h': String(hueOf(post.user.username + post.id)) }, text: post.caption.slice(0, 90) }),
-                                  h('span', { class: 'tile-boops' }, icon('paw'), compactCount(post.boops))
+                                  h('span', { class: 'tile-boops' }, icon('heart'), compactCount(post.boops))
                               )
                           )
                         : [emptyState('image', isMe ? 'Your first post goes here' : 'No posts yet', '', isMe && h('a', { class: 'btn primary', href: '#/new', text: 'Create a post' }))])

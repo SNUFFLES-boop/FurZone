@@ -302,17 +302,55 @@ export function createSupabaseBackend(url, anonKey) {
             const rows = await must(
                 client
                     .from('comments')
-                    .select(`id, body, created_at, user_id, profiles!comments_user_id_fkey!inner(${PROFILE_COLS})`)
+                    .select(`id, body, created_at, user_id, boops_count, profiles!comments_user_id_fkey!inner(${PROFILE_COLS})`)
                     .eq('post_id', postId)
                     .order('created_at', { ascending: true })
                     .limit(300)
             );
-            const roles = await rolesOf([...new Set(rows.map((r) => r.user_id))]);
-            return rows.map((r) => ({ id: r.id, body: r.body, created_at: r.created_at, user: shapeProfile({ ...r.profiles, role: roles.get(r.user_id) || null }) }));
+            const me = await userId();
+            const people = [...new Set(rows.map((r) => r.user_id))];
+            const ids = rows.map((r) => r.id);
+            const [roles, liked, iFollow, followMe] = await Promise.all([
+                rolesOf(people),
+                ids.length ? must(client.from('comment_boops').select('comment_id').eq('user_id', me).in('comment_id', ids)) : [],
+                people.length ? must(client.from('follows').select('followee_id').eq('follower_id', me).in('followee_id', people)) : [],
+                people.length ? must(client.from('follows').select('follower_id').eq('followee_id', me).in('follower_id', people)) : []
+            ]);
+            const likedSet = new Set(liked.map((r) => r.comment_id));
+            const following = new Set(iFollow.map((r) => r.followee_id));
+            const followers = new Set(followMe.map((r) => r.follower_id));
+            return rows.map((r) => ({
+                id: r.id,
+                body: r.body,
+                created_at: r.created_at,
+                likes: Number(r.boops_count) || 0,
+                liked: likedSet.has(r.id),
+                user: {
+                    ...shapeProfile({ ...r.profiles, role: roles.get(r.user_id) || null }),
+                    you_follow: following.has(r.user_id),
+                    follows_you: followers.has(r.user_id)
+                }
+            }));
         },
         async addComment(postId, body) {
             const row = await must(client.from('comments').insert({ post_id: postId, body }).select('id, body, created_at').single());
             return { ...row, user: await this.me() };
+        },
+        async likeComment(commentId) {
+            const { error } = await client.from('comment_boops').insert({ comment_id: commentId });
+            if (error && error.code !== '23505') throw error;
+        },
+        async unlikeComment(commentId) {
+            const id = await userId();
+            await must(client.from('comment_boops').delete().eq('comment_id', commentId).eq('user_id', id));
+        },
+        /** Counts a view (once per person; the database ignores your own posts). Never fails loudly. */
+        async recordView(postId) {
+            await client.rpc('record_view', { p_post: postId });
+        },
+        async explore({ sort = 'trending', range = 'week', type = 'all', offset = 0, limit = 30 } = {}) {
+            const rows = await must(client.rpc('explore', { p_sort: sort, p_range: range, p_type: type, p_limit: limit, p_offset: offset }));
+            return rows.map(shapePost);
         },
         async deleteComment(commentId) {
             await must(client.from('comments').delete().eq('id', commentId));

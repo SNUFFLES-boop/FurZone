@@ -3,7 +3,7 @@ import { app } from '../state.js';
 import { timeAgo, hueOf } from '../format.js';
 
 const TEXT = {
-    boop: ['paw', 'booped your post'],
+    boop: ['heart', 'booped your post'],
     comment: ['comment', 'commented on your post'],
     follow: ['user', 'started following you']
 };

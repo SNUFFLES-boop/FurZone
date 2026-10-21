@@ -36,7 +36,19 @@ check('file a report (like the app: no read-back)', await call(OWNER, '/reports'
 check('OLD posts embed (expected to fail, the bug)', await call(OWNER, `/posts?select=${q(`*, profiles!inner(${PC})`)}&id=eq.${post.id}`), (r) => r.status === 300 || /more than one relationship/.test(JSON.stringify(r.body)));
 check('post page: posts + author', await call(OWNER, `/posts?select=${q(`*, profiles!posts_user_id_fkey!inner(${PC})`)}&id=eq.${post.id}`), (r) => r.status === 200 && r.body[0].profiles.username === 'fur2');
 check('profile grid: user posts', await call(OWNER, `/posts?select=${q(`*, profiles!posts_user_id_fkey!inner(${PC})`)}&user_id=eq.${FUR}&order=created_at.desc&limit=30`), (r) => r.status === 200 && r.body.length === 1);
-check('comments + author', await call(FUR, `/comments?select=${q(`id, body, created_at, user_id, profiles!comments_user_id_fkey!inner(${PC})`)}&post_id=eq.${post.id}`), (r) => r.status === 200 && r.body[0].profiles.username === 'owner1');
+check('comments + author + likes', await call(FUR, `/comments?select=${q(`id, body, created_at, user_id, boops_count, profiles!comments_user_id_fkey!inner(${PC})`)}&post_id=eq.${post.id}`), (r) => r.status === 200 && r.body[0].profiles.username === 'owner1' && r.body[0].boops_count === 0);
+const firstComment = (await call(FUR, `/comments?select=id&post_id=eq.${post.id}`)).body[0];
+check('like a comment', await call(FUR, '/comment_boops', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ comment_id: firstComment.id }) }));
+check('my comment likes', await call(FUR, `/comment_boops?select=comment_id&user_id=eq.${FUR}&comment_id=in.(${firstComment.id})`), (r) => r.status === 200 && r.body.length === 1);
+check('comment like counted', await call(FUR, `/comments?select=boops_count&id=eq.${firstComment.id}`), (r) => r.body[0].boops_count === 1);
+check('unlike a comment', await call(FUR, `/comment_boops?comment_id=eq.${firstComment.id}&user_id=eq.${FUR}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }));
+check('who I follow / who follows me', await call(FUR, `/follows?select=followee_id&follower_id=eq.${FUR}&followee_id=in.(${OWNER})`), (r) => r.status === 200);
+check('count a view', await call(OWNER, '/rpc/record_view', { method: 'POST', body: JSON.stringify({ p_post: post.id }) }));
+check('view counted once', (await call(OWNER, '/rpc/record_view', { method: 'POST', body: JSON.stringify({ p_post: post.id }) }), await call(OWNER, `/posts?select=views_count&id=eq.${post.id}`)), (r) => r.body[0].views_count === 1);
+for (const sort of ['trending', 'popular', 'viewed', 'newest']) {
+    check(`explore: ${sort}`, await call(OWNER, '/rpc/explore', { method: 'POST', body: JSON.stringify({ p_sort: sort, p_range: 'week', p_type: 'all', p_limit: 24, p_offset: 0 }) }), (r) => r.status === 200 && r.body.length === 1 && r.body[0].views_count === 1);
+}
+check('explore: pictures only', await call(OWNER, '/rpc/explore', { method: 'POST', body: JSON.stringify({ p_sort: 'trending', p_range: 'all', p_type: 'image', p_limit: 24, p_offset: 0 }) }), (r) => r.status === 200 && r.body.length === 0);
 check('inbox notifications', await call(FUR, `/notifications?select=${q(`id, kind, created_at, read_at, post_id, actor:profiles!notifications_actor_id_fkey(${PC}), post:posts(media_path, media_type, caption)`)}&order=created_at.desc`), (r) => r.status === 200 && r.body.length >= 1 && r.body[0].actor.username === 'owner1');
 check('feed rpc', await call(OWNER, '/rpc/feed', { method: 'POST', body: JSON.stringify({ p_scope: 'all', p_before: null, p_limit: 8, p_tag: null }) }), (r) => r.status === 200 && r.body.length === 1);
 check('staff roles lookup', await call(FUR, `/staff?select=user_id,role&user_id=in.(${OWNER},${FUR})`), (r) => r.status === 200 && r.body[0].role === 'owner');

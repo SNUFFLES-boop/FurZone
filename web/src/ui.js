@@ -194,6 +194,16 @@ export function emptyState(iconName, title, text, action) {
     );
 }
 
+/** Changes a number with a little roll animation. */
+export function bump(el, text) {
+    text = String(text);
+    if (el.textContent === text) return;
+    el.textContent = text;
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+}
+
 export function spinner(label = 'Loading') {
     return h('div', { class: 'spinner', role: 'progressbar', 'aria-label': label });
 }
