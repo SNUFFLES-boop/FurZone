@@ -62,6 +62,23 @@ export function openExternal(url) {
     else window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+/**
+ * The full-screen video player: on Android, hide the status and navigation bars, keep the screen on and turn
+ * the screen ('auto' follows the phone, or 'landscape' / 'portrait'). Returns false where the app can't
+ * (a browser, or an older Android app), so the page uses the browser's own full screen instead.
+ */
+export function setPlayerMode(on, orientation = 'auto') {
+    if (android && typeof android.setPlayer === 'function') {
+        try {
+            android.setPlayer(!!on, String(orientation));
+            return true;
+        } catch {
+            return false;
+        }
+    }
+    return false;
+}
+
 export function onUpdateProgress(fn) {
     progressListeners.add(fn);
     return () => progressListeners.delete(fn);

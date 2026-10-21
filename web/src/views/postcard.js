@@ -2,8 +2,9 @@
 // the action rail. Used by the feed and the single-post page.
 import { h, icon, avatar, toast, errorText, sheet, confirmDialog, withBusy, field, segmented, bump, flagPill, fill } from '../ui.js';
 import { look } from '../look.js';
+import { feedVideo } from './player.js';
 import { captionParts, compactCount, timeAgo, hueOf } from '../format.js';
-import { app, savePref } from '../state.js';
+import { app } from '../state.js';
 import { roleBadge, myRank, outranks, staffTools } from '../staff.js';
 
 const REPORT_REASONS = ['Spam or scam', 'NSFW / not safe for work', 'Harassment or hate', 'Stolen art (no credit)', 'Something else'];
@@ -99,11 +100,7 @@ export function renderSlide(post, { onRemoved } = {}) {
             class: 'slide-video'
         });
         video.muted = app.muted;
-        media = h('div', { class: 'slide-media' }, video, h('div', { class: 'video-progress' }, h('span')));
-        const bar = media.querySelector('.video-progress span');
-        video.addEventListener('timeupdate', () => {
-            if (video.duration) bar.style.transform = `scaleX(${video.currentTime / video.duration})`;
-        });
+        media = h('div', { class: 'slide-media' }, video);
     } else if (post.media_type === 'image') {
         // Art is never cropped: the picture fits the card, over a blurred copy of itself.
         media = h(
@@ -202,19 +199,8 @@ export function renderSlide(post, { onRemoved } = {}) {
     );
 
     slide.append(media, h('div', { class: 'slide-shade', 'aria-hidden': 'true' }), info, h('div', { class: 'rail' }, boopBtn, commentBtn, shareBtn, moreBtn));
-    if (video) {
-        const muteBtn = h('button', { class: 'mute-btn', 'aria-label': app.muted ? 'Unmute' : 'Mute' }, icon(app.muted ? 'mute' : 'volume'));
-        muteBtn.onclick = (e) => {
-            e.stopPropagation();
-            savePref('muted', !app.muted);
-            for (const v of document.querySelectorAll('.slide-video')) v.muted = app.muted;
-            for (const b of document.querySelectorAll('.mute-btn')) {
-                fill(b, icon(app.muted ? 'mute' : 'volume'));
-                b.setAttribute('aria-label', app.muted ? 'Unmute' : 'Mute');
-            }
-        };
-        slide.append(muteBtn);
-    }
+    // Video controls: seek bar, hold for 2×, sound, full screen (see player.js).
+    const player = video ? feedVideo(slide, media, video, { post, onBoop: () => boopBtn.click(), isBooped: () => post.booped, onComments: () => openComments(post, () => sync()) }) : null;
 
     // Double-tap anywhere on the media to boop; a single tap pauses/plays a video.
     let lastTap = 0;
@@ -232,6 +218,7 @@ export function renderSlide(post, { onRemoved } = {}) {
         }
         lastTap = nowT;
         if (video) {
+            if (player && player.wasHold()) return; // that was a "hold for 2×", not a tap
             tapTimer = setTimeout(() => {
                 if (video.paused) video.play().catch(() => {});
                 else video.pause();

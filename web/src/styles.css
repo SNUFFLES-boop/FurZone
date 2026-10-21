@@ -1441,45 +1441,9 @@ textarea:focus {
     }
 }
 
-.mute-btn {
-    position: absolute;
-    z-index: 3;
-    top: calc(64px + var(--safe-t));
-    right: 20px;
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    border: 0;
-    display: grid;
-    place-items: center;
-    color: #fff;
-    background: rgba(15, 11, 26, 0.5);
-    cursor: pointer;
-}
 
-.mute-btn .icon {
-    width: 18px;
-    height: 18px;
-}
 
-.video-progress {
-    position: absolute;
-    left: 18px;
-    right: 18px;
-    bottom: 8px;
-    height: 3px;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.2);
-    overflow: hidden;
-}
 
-.video-progress span {
-    display: block;
-    height: 100%;
-    background: #fff;
-    transform-origin: left;
-    transform: scaleX(0);
-}
 
 .slide.paused .slide-media::after {
     content: '';
@@ -4801,4 +4765,610 @@ button.insight-card:active {
 
 .person-link .name-line {
     flex: 1;
+}
+
+/* ---------------------------------------------------------------- video player */
+
+/* Feed: sound + full screen buttons, below the header and the category chips */
+.video-tools {
+    position: absolute;
+    z-index: 3;
+    top: calc(150px + var(--safe-t));
+    right: 18px;
+    display: flex;
+    gap: 8px;
+    transition: opacity 0.2s ease;
+}
+
+.video-tool {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(15, 11, 26, 0.5);
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.35s var(--spring);
+}
+
+.video-tool:active {
+    transform: scale(0.9);
+}
+
+.video-tool .icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* Wide videos fit the card instead of being cut off */
+.wide-video .slide-video {
+    object-fit: contain;
+}
+
+.full-pill {
+    position: absolute;
+    z-index: 2;
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+    background: rgba(15, 11, 26, 0.55);
+    color: #fff;
+    font: 600 13px var(--font);
+    cursor: pointer;
+}
+
+.full-pill .icon {
+    width: 16px;
+    height: 16px;
+}
+
+.speed-badge {
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font: 700 14px var(--font);
+    pointer-events: none;
+}
+
+.player .speed-badge {
+    top: calc(24px + var(--safe-t));
+    transform: translateX(-50%);
+}
+
+.speed-badge .icon {
+    width: 16px;
+    height: 16px;
+}
+
+/* The seek bar: thin, but easy to grab (the touch area is much taller than the line) */
+.video-bar {
+    position: absolute;
+    z-index: 3;
+    left: 10px;
+    right: 10px;
+    bottom: 0;
+}
+
+.scrub {
+    position: relative;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    touch-action: none;
+    cursor: pointer;
+    outline: none;
+}
+
+.scrub-track {
+    position: relative;
+    flex: 1;
+    height: 3px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.22);
+    transition: height 0.15s ease;
+}
+
+.scrub:hover .scrub-track,
+.scrub:focus-visible .scrub-track,
+.scrub.dragging .scrub-track {
+    height: 6px;
+}
+
+.scrub-loaded,
+.scrub-played {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    transform-origin: left;
+    transform: scaleX(0);
+}
+
+.scrub-loaded {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.scrub-played {
+    background: #fff;
+}
+
+.scrub-knob {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+    transform: scale(0);
+    transition: transform 0.15s ease;
+}
+
+.scrub:hover .scrub-knob,
+.scrub:focus-visible .scrub-knob,
+.scrub.dragging .scrub-knob,
+.player .scrub-knob {
+    transform: scale(1);
+}
+
+.scrub.dragging .scrub-knob {
+    transform: scale(1.25);
+}
+
+.scrub-bubble {
+    position: absolute;
+    bottom: 30px;
+    transform: translateX(-50%);
+    padding: 5px 10px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font: 700 15px var(--font);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* While dragging the seek bar in the feed, everything else fades so you can see the video */
+.slide.scrubbing .slide-info,
+.slide.scrubbing > .rail,
+.slide.scrubbing .video-tools,
+.slide.scrubbing .slide-shade,
+.slide.fast .slide-info,
+.slide.fast > .rail,
+.slide.fast .video-tools {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.slide-info,
+.slide > .rail,
+.slide-shade {
+    transition: opacity 0.2s ease;
+}
+
+.slide.scrubbing .slide-media::after {
+    display: none;
+}
+
+/* Full screen player */
+.player {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: #000;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    outline: none;
+    overscroll-behavior: contain;
+}
+
+.player.in {
+    opacity: 1;
+}
+
+.player-stage {
+    position: absolute;
+    inset: 0;
+}
+
+.player-stage video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: none;
+}
+
+.player-stage[data-fit='cover'] video {
+    object-fit: cover;
+}
+
+.player-controls {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    background:
+        linear-gradient(rgba(0, 0, 0, 0.55), transparent 22%),
+        linear-gradient(transparent 70%, rgba(0, 0, 0, 0.65));
+}
+
+.player.show .player-controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.player-top,
+.player-bottom {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+}
+
+.player-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: calc(10px + var(--safe-t));
+}
+
+.player-who {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.player-who-text {
+    display: grid;
+    min-width: 0;
+    line-height: 1.25;
+}
+
+.player-who-text > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.player-who-text .muted {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.player-middle {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(28px, 10vw, 72px);
+}
+
+.player-big {
+    width: 72px;
+    height: 72px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.35s var(--spring);
+}
+
+.player-big .icon {
+    width: 34px;
+    height: 34px;
+}
+
+.player-skip {
+    position: relative;
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.35s var(--spring);
+}
+
+.player-skip .icon {
+    width: 22px;
+    height: 22px;
+    opacity: 0.9;
+}
+
+.player-skip span {
+    position: absolute;
+    bottom: 6px;
+    font: 700 10px var(--font);
+}
+
+.player-big:active,
+.player-skip:active,
+.player-btn:active {
+    transform: scale(0.9);
+}
+
+.player-bottom {
+    padding-bottom: calc(8px + var(--safe-b));
+}
+
+.player-seek {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.player-seek .scrub {
+    flex: 1;
+    height: 30px;
+}
+
+.player-time {
+    font: 600 13px var(--font);
+    font-variant-numeric: tabular-nums;
+    min-width: 38px;
+    text-align: center;
+}
+
+.player-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.player-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.player-btn {
+    min-width: 42px;
+    height: 42px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 12px;
+    background: none;
+    color: #fff;
+    cursor: pointer;
+    transition:
+        transform 0.35s var(--spring),
+        background 0.2s ease,
+        color 0.2s ease;
+}
+
+.player-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.player-btn .icon {
+    width: 22px;
+    height: 22px;
+}
+
+.player-btn.text {
+    font: 700 14px var(--font);
+    min-width: 48px;
+}
+
+.player-btn.on {
+    color: #f9a8d4;
+}
+
+.player-btn[aria-pressed='false'] {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.player-volume {
+    width: 90px;
+    accent-color: #fff;
+}
+
+@media (hover: none) {
+    .player-volume {
+        display: none;
+    }
+}
+
+.player-wait,
+.player-error {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 12px;
+    pointer-events: none;
+}
+
+.player-error {
+    pointer-events: auto;
+    z-index: 2;
+    background: rgba(0, 0, 0, 0.6);
+    text-align: center;
+}
+
+.player-ripple {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 38%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font: 700 15px var(--font);
+    pointer-events: none;
+    background: rgba(255, 255, 255, 0.08);
+    opacity: 0;
+}
+
+.player-ripple .icon {
+    width: 22px;
+    height: 22px;
+}
+
+.player-ripple.left {
+    left: 0;
+    border-radius: 0 50% 50% 0 / 0 50% 50% 0;
+}
+
+.player-ripple.right {
+    right: 0;
+    border-radius: 50% 0 0 50% / 50% 0 0 50%;
+}
+
+.player-ripple.go {
+    animation: ripple-fade 0.65s ease-out;
+}
+
+@keyframes ripple-fade {
+    0% {
+        opacity: 0;
+    }
+    20% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+/* Sheets (like the speed menu) open on top of the player */
+html.player-open .scrim {
+    z-index: 60;
+}
+
+/* Room for the seek bar under the caption and the buttons */
+.slide:has(.video-bar) .slide-info {
+    padding-bottom: 30px;
+}
+
+.slide:has(.video-bar) > .rail {
+    bottom: 36px;
+}
+
+.player-hint {
+    position: absolute;
+    z-index: 5;
+    top: 38%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font: 600 14px var(--font);
+    pointer-events: none;
+}
+
+.player-hint.go {
+    animation: hint-in 1.4s ease forwards;
+}
+
+@keyframes hint-in {
+    0% {
+        opacity: 0;
+    }
+    12%,
+    75% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+.player-menu {
+    position: absolute;
+    z-index: 6;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: calc(100px + var(--safe-b));
+    min-width: 200px;
+    padding: 6px;
+    border-radius: 16px;
+    background: rgba(26, 20, 41, 0.97);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow);
+}
+
+.player-menu-title {
+    margin: 6px 10px 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.player-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 42px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: #fff;
+    font: 600 15px var(--font);
+    cursor: pointer;
+}
+
+.player-menu-item:hover,
+.player-menu-item.on {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.player-menu-item .icon {
+    width: 18px;
+    height: 18px;
+    color: #f9a8d4;
+}
+
+@media (max-width: 520px) {
+    .player-volume {
+        display: none;
+    }
+
+    .player-btn {
+        min-width: 38px;
+    }
 }

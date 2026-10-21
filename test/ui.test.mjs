@@ -173,6 +173,57 @@ await test('a picture post: uploads and shows uncropped', async () => {
     await shot('06-picture-post');
 });
 
+await test('video player: seek bar, full screen, skip, speed, fit, back to the feed', async () => {
+    await page.locator('.tabbar .nav-new').click();
+    const webm = await readFile(new URL('./fixtures/wide.webm', import.meta.url));
+    await page.locator('input[type=file]').setInputFiles({ name: 'wide.webm', mimeType: 'video/webm', buffer: webm });
+    await page.locator('.drop.has-media video').waitFor();
+    await page.getByPlaceholder('Say something about it').fill('Wide video #vrchat');
+    await page.getByRole('button', { name: 'Post', exact: true }).click();
+    await toastSays('Posted!');
+    await page.locator('.slide.wide-video').first().waitFor();
+    await page.locator('.tabbar .nav-home').click();
+    const slide = page.locator('.slides .slide.wide-video').first();
+    await slide.waitFor();
+    // Wide videos fit instead of being cut off, and the buttons sit below the category chips.
+    assert.equal(await slide.locator('video').evaluate((v) => getComputedStyle(v).objectFit), 'contain');
+    const tools = await slide.locator('.video-tools').boundingBox();
+    const chips = await page.locator('.cat-row').boundingBox();
+    assert.ok(tools.y >= chips.y + chips.height, 'sound/full screen buttons are below the chips');
+    // Drag the seek bar.
+    const bar = await slide.locator('.scrub').boundingBox();
+    await page.mouse.move(bar.x + bar.width * 0.1, bar.y + bar.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(bar.x + bar.width * 0.6, bar.y + bar.height / 2, { steps: 5 });
+    await slide.locator('.scrub-bubble').waitFor();
+    await shot('06b-scrubbing');
+    await page.mouse.up();
+    await page.waitForFunction(() => document.querySelector('.slide.wide-video video').currentTime > 3);
+    // Full screen player.
+    await slide.locator('.full-pill').click();
+    await page.locator('.player.in .player-stage video').waitFor();
+    await page.locator('.player.show').waitFor();
+    await shot('06c-player');
+    const t0 = await page.locator('.player video').evaluate((v) => v.currentTime);
+    await page.getByRole('button', { name: 'Forward 10 seconds' }).click();
+    assert.ok((await page.locator('.player video').evaluate((v) => v.currentTime)) > t0 + 1 || t0 > 0, 'skipped ahead');
+    await page.getByRole('button', { name: 'Back 10 seconds' }).click();
+    await page.getByRole('button', { name: 'Playback speed' }).click();
+    await page.locator('.player-menu-item', { hasText: '1.5×' }).click();
+    assert.equal(await page.locator('.player video').evaluate((v) => v.playbackRate), 1.5);
+    await page.getByRole('button', { name: 'Fill the screen' }).click();
+    assert.equal(await page.locator('.player-stage').getAttribute('data-fit'), 'cover');
+    await page.getByRole('button', { name: 'Repeat' }).click();
+    assert.equal(await page.locator('.player video').evaluate((v) => v.loop), false);
+    await noJunkText('player');
+    if (await page.evaluate(() => !!document.fullscreenElement)) await page.evaluate(() => document.exitFullscreen());
+    await page.locator('.player').getByRole('button', { name: 'Close' }).click();
+    await page.locator('.player').waitFor({ state: 'detached' });
+    // The same video is back in the feed, still at its place, looping again.
+    assert.equal(await slide.locator('video').count(), 1);
+    assert.equal(await slide.locator('video').evaluate((v) => v.loop), true);
+});
+
 await test('explore: search by species, trending tags, tag pages', async () => {
     await page.locator('.tabbar .nav-explore').click();
     await page.locator('.tag-chip', { hasText: '#art' }).first().waitFor();

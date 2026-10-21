@@ -158,6 +158,19 @@ export function sheet(title, content, { onClose, tall = false } = {}) {
     return api;
 }
 
+/**
+ * Puts a full-screen layer (like the video player) on the same stack as sheets, so Android's back button and
+ * page changes close it like a sheet. Returns a function to call when the layer closes by itself.
+ */
+export function registerLayer(close) {
+    const api = { close, el: null, panel: null };
+    openSheets.push(api);
+    return () => {
+        const i = openSheets.indexOf(api);
+        if (i >= 0) openSheets.splice(i, 1);
+    };
+}
+
 export function closeTopSheet() {
     const top = openSheets[openSheets.length - 1];
     if (top) {

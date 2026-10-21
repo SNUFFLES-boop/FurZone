@@ -3,9 +3,14 @@ package com.snufflesboop.furzone;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -135,6 +140,48 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
+    /**
+     * The video player: full screen hides the status and navigation bars (swipe from the edge to see them),
+     * keeps the screen on, and turns the screen: "landscape", "portrait" or "auto" (follows the phone).
+     * Closing it puts everything back the way it was.
+     */
+    @SuppressWarnings("deprecation")
+    void applyPlayer(boolean on, String orientation) {
+        int requested = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        if (on) {
+            if ("landscape".equals(orientation)) {
+                requested = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+            } else if ("portrait".equals(orientation)) {
+                requested = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+            } else {
+                requested = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
+            }
+        }
+        setRequestedOrientation(requested);
+        if (on) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                if (on) {
+                    c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    c.hide(WindowInsets.Type.systemBars());
+                } else {
+                    c.show(WindowInsets.Type.systemBars());
+                }
+            }
+        } else {
+            View decor = getWindow().getDecorView();
+            decor.setSystemUiVisibility(on
+                    ? View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    : View.SYSTEM_UI_FLAG_VISIBLE);
+        }
+    }
+
     void sendToPage(final String json) {
         runOnUiThread(new Runnable() {
             @Override
@@ -215,6 +262,8 @@ public class MainActivity extends Activity {
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             Uri uri = Uri.parse(url);
             currentHost = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            // A new page never starts in the video player's full screen.
+            applyPlayer(false, null);
         }
 
         @Override
@@ -292,6 +341,18 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         MainActivity.this.openExternal(Uri.parse(url));
+                    }
+                });
+            }
+        }
+
+        @JavascriptInterface
+        public void setPlayer(final boolean on, final String orientation) {
+            if (fromApp()) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        applyPlayer(on, orientation);
                     }
                 });
             }

@@ -106,8 +106,32 @@ public sealed class MainForm : Form
                 : CoreWebView2PermissionState.Deny;
         };
         core.DocumentTitleChanged += (_, _) => Text = "FurZone";
+        // The video player's full screen: the window fills the whole screen with no frame, then goes back.
+        core.ContainsFullScreenElementChanged += (_, _) => SetFullScreen(core.ContainsFullScreenElement);
         core.WebMessageReceived += OnMessage;
         core.Navigate(NavigationPolicy.StartUrl);
+    }
+
+    private FormWindowState windowStateBefore = FormWindowState.Normal;
+    private bool fullScreen;
+
+    private void SetFullScreen(bool on)
+    {
+        if (on == fullScreen) return;
+        fullScreen = on;
+        if (on)
+        {
+            windowStateBefore = WindowState;
+            // Leave "maximized" first, or Windows keeps the taskbar visible.
+            WindowState = FormWindowState.Normal;
+            FormBorderStyle = FormBorderStyle.None;
+            WindowState = FormWindowState.Maximized;
+        }
+        else
+        {
+            FormBorderStyle = FormBorderStyle.Sizable;
+            WindowState = windowStateBefore;
+        }
     }
 
     private void OpenExternal(string? url)

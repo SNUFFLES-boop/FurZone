@@ -56,13 +56,24 @@ const PATHS = {
     send: 'M22 2 11 13M22 2l-7 20-4-9-9-4z',
     megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
     filter: 'M3 5h18M6 12h12M10 19h4',
+    expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+    shrink: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+    rotate: 'M4.5 9A8 8 0 0 1 18.4 6.6M19 3v4h-4M19.5 15a8 8 0 0 1-13.9 2.4M5 21v-4h4',
+    play: 'M7 4.6v14.8a1 1 0 0 0 1.5.9l12-7.4a1 1 0 0 0 0-1.8l-12-7.4A1 1 0 0 0 7 4.6z',
+    pause: 'M6 4h4.5v16H6zM13.5 4H18v16h-4.5z',
+    rewind: 'M11 18.5 3 12l8-6.5zM21 18.5 13 12l8-6.5z',
+    forward: 'M13 18.5 21 12l-8-6.5zM3 18.5 11 12 3 5.5z',
+    gauge: 'M12 14l4.5-4.5M3.6 18a9.5 9.5 0 1 1 16.8 0',
+    pip: 'M3 5h18v14H3zM12.5 12H19v5h-6.5z',
+    repeat: 'M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3',
+    fit: 'M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3M9 9h6v6H9z',
     heart: 'M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 4.5 6.6 4.5c2.2 0 3.7 1.2 5.4 3.2 1.7-2 3.2-3.2 5.4-3.2 3.6 0 5.7 3.7 4.2 7.2C19.5 16.4 12 21 12 21z'
 };
 
 /** The raw shape of an icon (used to draw the animated background). */
 export const iconPath = (name) => PATHS[name];
 
-const FILLED = new Set(['paw', 'discord', 'vrchat', 'heart']);
+const FILLED = new Set(['paw', 'discord', 'vrchat', 'heart', 'play', 'pause', 'rewind', 'forward']);
 const NS = 'http://www.w3.org/2000/svg';
 
 export function icon(name, cls) {
