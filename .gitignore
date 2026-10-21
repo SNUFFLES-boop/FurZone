@@ -12,3 +12,6 @@ desktop/out/
 test/shots/
 
 desktop/FurZone_Setup.exe
+desktop/test/bin/
+desktop/test/obj/
+*.exe
