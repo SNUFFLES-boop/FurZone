@@ -242,6 +242,19 @@ await test('video player: seek bar, full screen, skip, speed, fit, back to the f
     const tools = await slide.locator('.video-tools').boundingBox();
     const chips = await page.locator('.cat-row').boundingBox();
     assert.ok(tools.y >= chips.y + chips.height, 'sound/full screen buttons are below the chips');
+    // The length badge is live: it follows the video's time and shows pause while playing.
+    const liveBadge = await page.evaluate(async () => {
+        const s = document.querySelector('.feed .slide.wide-video');
+        const v = s.querySelector('video');
+        const badge = () => s.querySelector('.media-badge.time');
+        v.muted = true;
+        await v.play().catch(() => {});
+        v.currentTime = Math.max(0, v.duration - 0.5);
+        await new Promise((r) => v.addEventListener('seeked', r, { once: true }));
+        await new Promise((r) => setTimeout(r, 100));
+        return { text: badge()?.textContent, playing: badge()?.classList.contains('playing'), full: v.duration };
+    });
+    assert.equal(liveBadge.text, '0:00', `badge counts down (got ${liveBadge.text}, length ${liveBadge.full})`);
     // Drag the seek bar.
     const bar = await slide.locator('.scrub').boundingBox();
     await page.mouse.move(bar.x + bar.width * 0.1, bar.y + bar.height / 2);

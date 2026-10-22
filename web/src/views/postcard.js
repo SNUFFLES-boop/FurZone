@@ -128,12 +128,16 @@ export function renderSlide(post, { onRemoved } = {}) {
             drawBadges();
         });
     } else if (mediaEl) {
-        mediaEl.addEventListener('loadedmetadata', () => {
+        const readMeta = () => {
             mediaInfo.width = mediaEl.videoWidth;
             mediaInfo.height = mediaEl.videoHeight;
-            mediaInfo.duration = mediaEl.duration;
+            mediaInfo.duration = Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0;
             drawBadges();
-        });
+        };
+        mediaEl.addEventListener('loadedmetadata', readMeta);
+        mediaEl.addEventListener('durationchange', readMeta);
+        // The length badge is live: it counts down while the video plays and shows play/pause.
+        for (const ev of ['timeupdate', 'play', 'pause', 'ended', 'seeked']) mediaEl.addEventListener(ev, () => tickTime());
     }
 
     // ---- actions ----
@@ -218,9 +222,29 @@ export function renderSlide(post, { onRemoved } = {}) {
     // Picture/video details found once it loads: size, quality, length.
     const mediaInfo = {};
     const mediaBadges = h('div', { class: 'media-badges' });
+    const timeText = h('span', { class: 'media-time' });
+    const timeBadge = h('span', { class: 'media-badge time' });
+    let timeState = '';
+    function tickTime() {
+        const v = mediaEl;
+        const total = mediaInfo.duration;
+        if (!v || !total) return;
+        const playing = !v.paused && !v.ended;
+        const left = v.ended ? total : Math.max(0, total - (v.currentTime || 0));
+        const label = formatTime(playing || v.currentTime > 0.05 ? left : total);
+        const state = playing ? 'pause' : 'play';
+        if (state !== timeState) {
+            timeState = state;
+            fill(timeBadge, icon(state), timeText);
+            timeBadge.classList.toggle('playing', playing);
+        }
+        if (timeText.textContent !== label) timeText.textContent = label;
+    }
     function drawBadges() {
         const q = qualityLabel(mediaInfo.width, mediaInfo.height);
-        fill(mediaBadges, q && h('span', { class: 'media-badge q' + (q === '4K' ? ' uhd' : '') }, q), mediaInfo.duration ? h('span', { class: 'media-badge' }, icon('play'), formatTime(mediaInfo.duration)) : null);
+        timeState = '';
+        fill(mediaBadges, q && h('span', { class: 'media-badge q' + (q === '4K' ? ' uhd' : '') }, q), mediaInfo.duration ? timeBadge : null);
+        tickTime();
     }
 
     const followBtn =
